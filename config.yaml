@@ -20,6 +20,8 @@ scanner:
     - exponential_moving_average_50
     - simple_moving_average_200
     - recommendation_mark
+    - bollinger_upper_band_20
+    - bollinger_lower_band_20
 
 strategies:
   enabled:
@@ -27,6 +29,7 @@ strategies:
     - macd_strategy
     - volume_spike
     - volume_rsi_breakout
+    - bollinger_squeeze
 
   rsi_strategy:
     oversold_threshold: 30
@@ -45,6 +48,10 @@ strategies:
     rsi_max: 65
     tp_percent: 1.50
     sl_percent: 0.75
+
+  bollinger_squeeze:
+    bandwidth_threshold: 0.10
+    tp_percent: 2.00
 
 notifications:
   telegram:

@@ -31,6 +31,7 @@ from strategies import (
     MACDStrategy,
     VolumeSpikeStrategy,
     VolumeRSIBreakoutStrategy,
+    BollingerSqueezeStrategy,
 )
 from notifications import ConsoleNotifier, TelegramNotifier, WebhookNotifier
 from storage import SQLiteStorage
@@ -101,6 +102,7 @@ class CryptoBot:
             "macd_strategy": MACDStrategy,
             "volume_spike": VolumeSpikeStrategy,
             "volume_rsi_breakout": VolumeRSIBreakoutStrategy,
+            "bollinger_squeeze": BollingerSqueezeStrategy,
         }
 
         for strategy_name in enabled:

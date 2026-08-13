@@ -35,7 +35,14 @@ AnalyTrader's strategy system is designed for high modularity. Every strategy op
   - `sl_percent` (default: `0.75%`): Stop loss percentage below entry price (or candle low).
 - **Risk / Reward Ratio**: 2.0 (TP: 1.50% / SL: 0.75%).
 
-### 5. Composite Strategy (`composite`)
+### 5. Bollinger Bands Squeeze & Breakout Strategy (`bollinger_squeeze`)
+- **Logic**: Identifies tight consolidation (Bandwidth $\le 10\%$) followed by a sharp breakout above the Upper Bollinger Band ($P_{close} > \text{Upper Band}$).
+- **Parameters**:
+  - `bandwidth_threshold` (default: `0.10`): Maximum relative bandwidth threshold ($\frac{\text{Upper} - \text{Lower}}{\text{Middle}}$).
+  - `tp_percent` (default: `2.00%`): Take profit target percentage above entry price.
+  - `sl_price`: Middle Band (20 SMA). Setup invalidation if price drops back below middle band.
+
+### 6. Composite Strategy (`composite`)
 - **Logic**: Meta-strategy requiring $N$ sub-strategies to agree on the same coin (Confluence).
 - **Boosted Confidence**: Emits `STRONG_BUY` or `STRONG_SELL` with confidence multiplier when agreement criteria is met.
 
