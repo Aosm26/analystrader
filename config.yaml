@@ -49,7 +49,7 @@ notifications:
     colored: true
 
   webhook:
-    enabled: false
+    enabled: true
     url: "${WEBHOOK_URL}"
 
 storage:
