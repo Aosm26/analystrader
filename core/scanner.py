@@ -41,6 +41,7 @@ class CryptoScanner:
         self,
         fields: Optional[List] = None,
         limit: int = 100,
+        exchanges: Optional[list[str]] = None,
     ):
         """
         Her tarama için taze bir CryptoScreener oluşturur.
@@ -49,6 +50,7 @@ class CryptoScanner:
         try:
             import tvscreener as tvs
             from tvscreener.field.crypto import CryptoField
+            from tvscreener.filter import FilterOperator
         except ImportError:
             raise ImportError(
                 "tvscreener kütüphanesi yüklü değil. "
@@ -61,6 +63,13 @@ class CryptoScanner:
         if fields:
             screener.specific_fields = fields
         # else: varsayılan CryptoField kullanılır (tüm field'lar)
+
+        # Borsa filtresi (Tek bir borsa tanımlandıysa API seviyesinde filtrele)
+        if exchanges and len(exchanges) == 1:
+            try:
+                screener.add_filter("exchange", FilterOperator.MATCH, exchanges[0])
+            except Exception as e:
+                logger.debug(f"API borsa filtresi ekleme uyarısı: {e}")
 
         # Sonuç aralığını ayarla
         screener.set_range(0, limit)
@@ -114,6 +123,7 @@ class CryptoScanner:
         self,
         limit: Optional[int] = None,
         custom_fields: Optional[list[str]] = None,
+        exchanges: Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """
         Kripto piyasasını tarar ve DataFrame döner.
@@ -121,6 +131,7 @@ class CryptoScanner:
         Args:
             limit: Maksimum sonuç sayısı
             custom_fields: Özel field listesi (None ise config'den alınır)
+            exchanges: İstenen borsa isimleri listesi (Örn: ["BINANCE", "KCEX"])
 
         Returns:
             pd.DataFrame: Tarama sonuçları
@@ -131,12 +142,20 @@ class CryptoScanner:
         if limit is None:
             limit = self.settings.get("scanner.default_limit", 100)
 
+        target_exchanges = (
+            exchanges
+            if exchanges is not None
+            else self.settings.get("scanner.exchanges", [])
+        )
+
         # Field'ları çözümle
         field_names = custom_fields or self.settings.get("scanner.fields", [])
         fields = self._resolve_field_list(field_names) if field_names else None
 
         # Screener oluştur
-        screener = self._build_screener(fields=fields, limit=limit)
+        screener = self._build_screener(
+            fields=fields, limit=limit, exchanges=target_exchanges
+        )
 
         # Veriyi çek
         try:
@@ -145,6 +164,24 @@ class CryptoScanner:
 
             if df is not None and not df.empty:
                 logger.info(f"✅ {len(df)} coin tarandı. Sütunlar: {list(df.columns)}")
+
+                # Borsa filtresi uygula (Symbol index veya Exchange sütunu)
+                if target_exchanges:
+                    ex_upper = [e.upper() for e in target_exchanges]
+
+                    def is_allowed_exchange(row):
+                        sym = str(row.get("Symbol", "")).upper()
+                        ex_col = str(row.get("Exchange", "")).upper()
+                        if ex_col and ex_col in ex_upper:
+                            return True
+                        return any(sym.startswith(f"{ex}:") for ex in ex_upper)
+
+                    initial_count = len(df)
+                    df = df[df.apply(is_allowed_exchange, axis=1)].reset_index(drop=True)
+                    logger.info(
+                        f"🔍 Borsa filtresi uygulandı ({', '.join(ex_upper)}): "
+                        f"{initial_count} -> {len(df)} coin kaldı."
+                    )
             else:
                 logger.warning("Tarama sonucu boş döndü.")
                 df = pd.DataFrame()

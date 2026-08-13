@@ -7,6 +7,7 @@ scanner:
   screener_type: "crypto"
   default_limit: 100
   min_volume: 500000  # Minimum hacim filtresi (USD)
+  exchanges: ["BINANCE", "KCEX"]  # İstenen borsalar (Örn: ["BINANCE", "KCEX", "BYBIT", "MEXC"]). Boş ise tüm borsalar taranır.
   fields:
     - name
     - close
