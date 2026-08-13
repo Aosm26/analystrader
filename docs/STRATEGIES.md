@@ -42,7 +42,13 @@ AnalyTrader's strategy system is designed for high modularity. Every strategy op
   - `tp_percent` (default: `2.00%`): Take profit target percentage above entry price.
   - `sl_price`: Middle Band (20 SMA). Setup invalidation if price drops back below middle band.
 
-### 6. Composite Strategy (`composite`)
+### 6. Dual EMA Trend Tracking & Dip Pullback Strategy (`ema_pullback`)
+- **Logic**: Catches healthy dip re-entries during established bull trends ($\text{Price} > \text{EMA}_{50} > \text{EMA}_{200}$) as price re-claims fast moving averages ($\text{Close} \ge \text{EMA}_{9/10}$).
+- **Parameters**:
+  - `tp_percent` (default: `1.20%`): Take profit target percentage above entry price.
+  - `sl_ema_offset` (default: `0.20%`): Stop loss distance percentage below $\text{EMA}_{21/20}$.
+
+### 7. Composite Strategy (`composite`)
 - **Logic**: Meta-strategy requiring $N$ sub-strategies to agree on the same coin (Confluence).
 - **Boosted Confidence**: Emits `STRONG_BUY` or `STRONG_SELL` with confidence multiplier when agreement criteria is met.
 

@@ -16,6 +16,7 @@ scanner:
     - relative_strength_index_14
     - macd_level_12_26
     - macd_signal_12_26
+    - exponential_moving_average_10
     - exponential_moving_average_20
     - exponential_moving_average_50
     - simple_moving_average_200
@@ -30,6 +31,7 @@ strategies:
     - volume_spike
     - volume_rsi_breakout
     - bollinger_squeeze
+    - ema_pullback
 
   rsi_strategy:
     oversold_threshold: 30
@@ -52,6 +54,10 @@ strategies:
   bollinger_squeeze:
     bandwidth_threshold: 0.10
     tp_percent: 2.00
+
+  ema_pullback:
+    tp_percent: 1.20
+    sl_ema_offset: 0.20
 
 notifications:
   telegram:

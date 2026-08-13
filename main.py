@@ -32,6 +32,7 @@ from strategies import (
     VolumeSpikeStrategy,
     VolumeRSIBreakoutStrategy,
     BollingerSqueezeStrategy,
+    EMAPullbackStrategy,
 )
 from notifications import ConsoleNotifier, TelegramNotifier, WebhookNotifier
 from storage import SQLiteStorage
@@ -103,6 +104,7 @@ class CryptoBot:
             "volume_spike": VolumeSpikeStrategy,
             "volume_rsi_breakout": VolumeRSIBreakoutStrategy,
             "bollinger_squeeze": BollingerSqueezeStrategy,
+            "ema_pullback": EMAPullbackStrategy,
         }
 
         for strategy_name in enabled:
