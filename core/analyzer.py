@@ -1,120 +1,108 @@
 """
-Analyzer — Analiz Motoru
+Analysis Engine — Strategy Execution & Signal Orchestration
 
-Scanner'dan gelen verileri kayıtlı stratejilere gönderir
-ve sinyalleri toplar.
+Runs scanned DataFrames through active strategies and aggregates generated signals.
 """
 
 from __future__ import annotations
 
-
 import logging
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 
 import pandas as pd
 
-from config.settings import Settings
-from models.signal import Signal
 from models.scan_result import ScanResult
+from models.signal import Signal
 from strategies.base import BaseStrategy
 
 logger = logging.getLogger("crypto_bot.analyzer")
 
 
 class Analyzer:
-    """
-    Stratejileri yöneten ve sinyalleri toplayan ana analiz motoru.
-    """
+    """Strategy orchestration engine."""
 
     def __init__(self):
-        self.settings = Settings()
-        self._strategies: list[BaseStrategy] = []
+        self._strategies: List[BaseStrategy] = []
 
     def register_strategy(self, strategy: BaseStrategy) -> None:
-        """Bir stratejiyi kayıt eder."""
-        self._strategies.append(strategy)
-        logger.info(f"Strateji kaydedildi: {strategy.name}")
+        """Registers a new strategy instance."""
+        if strategy not in self._strategies:
+            self._strategies.append(strategy)
+            logger.info(f"Registered strategy: {strategy.name}")
 
-    def unregister_strategy(self, strategy_name: str) -> None:
-        """Bir stratejiyi kaldırır."""
-        self._strategies = [
-            s for s in self._strategies if s.name != strategy_name
-        ]
-        logger.info(f"Strateji kaldırıldı: {strategy_name}")
-
-    @property
-    def strategies(self) -> list[BaseStrategy]:
-        """Kayıtlı stratejiler."""
-        return self._strategies
+    def unregister_strategy(self, strategy_name: str) -> bool:
+        """Unregisters a strategy by name."""
+        for s in self._strategies:
+            if s.name == strategy_name:
+                self._strategies.remove(s)
+                logger.info(f"Unregistered strategy: {strategy_name}")
+                return True
+        return False
 
     @property
-    def strategy_names(self) -> list[str]:
-        """Kayıtlı strateji isimleri."""
+    def strategy_names(self) -> List[str]:
+        """Returns registered strategy names."""
         return [s.name for s in self._strategies]
 
     def analyze(self, df: pd.DataFrame) -> ScanResult:
         """
-        DataFrame'i tüm stratejilere gönderir, sonuçları toplar.
+        Executes all active strategies against DataFrame and returns ScanResult.
 
         Args:
-            df: Scanner'dan gelen tarama verileri
+            df: Market scan data from CryptoScanner
 
         Returns:
-            ScanResult: Toplanan tüm sinyaller
+            ScanResult: Consolidated scan metrics and generated signals
         """
-        result = ScanResult(
-            total_coins_scanned=len(df) if df is not None else 0,
-            dataframe=df,
-        )
+        scan_time = datetime.now()
+        total_coins = len(df) if df is not None and not df.empty else 0
+        all_signals: List[Signal] = []
+        errors: List[str] = []
 
         if df is None or df.empty:
-            logger.warning("Analiz için veri yok.")
-            return result
-
-        if not self._strategies:
-            logger.warning("Kayıtlı strateji yok!")
-            return result
+            logger.warning("Empty DataFrame passed to analyzer.")
+            return ScanResult(
+                scan_time=scan_time,
+                total_coins_scanned=0,
+                signals=[],
+                errors=["Empty DataFrame"],
+            )
 
         logger.info(
-            f"📊 Analiz başlıyor: {len(df)} coin, "
-            f"{len(self._strategies)} strateji"
+            f"📊 Analysis starting: {total_coins} coins, "
+            f"{len(self._strategies)} strategies"
         )
 
         for strategy in self._strategies:
             try:
                 signals = strategy.analyze(df)
-                if signals:
-                    result.signals.extend(signals)
-                    logger.info(
-                        f"  ➤ {strategy.name}: {len(signals)} sinyal üretildi"
-                    )
-                else:
-                    logger.debug(f"  ➤ {strategy.name}: sinyal yok")
+                all_signals.extend(signals)
+                logger.info(
+                    f"  ➤ {strategy.name}: {len(signals)} signals generated"
+                )
 
             except Exception as e:
-                error_msg = f"{strategy.name} hatası: {e}"
-                logger.error(f"  ❌ {error_msg}", exc_info=True)
-                result.errors.append(error_msg)
+                err_msg = f"Strategy error ({strategy.name}): {e}"
+                logger.error(err_msg, exc_info=True)
+                errors.append(err_msg)
 
-        # Sinyalleri güvenilirlik skoruna göre sırala
-        result.signals.sort(key=lambda s: s.confidence, reverse=True)
+        # Sort signals by confidence score descending
+        all_signals.sort(key=lambda s: s.confidence, reverse=True)
 
-        logger.info(result.summary())
-        return result
-
-    def analyze_single(
-        self, df: pd.DataFrame, strategy_name: str
-    ) -> list[Signal]:
-        """Tek bir strateji ile analiz yapar."""
-        strategy = next(
-            (s for s in self._strategies if s.name == strategy_name), None
+        result = ScanResult(
+            scan_time=scan_time,
+            total_coins_scanned=total_coins,
+            signals=all_signals,
+            errors=errors,
         )
-        if strategy is None:
-            logger.error(f"Strateji bulunamadı: {strategy_name}")
-            return []
 
-        try:
-            return strategy.analyze(df)
-        except Exception as e:
-            logger.error(f"{strategy_name} hatası: {e}", exc_info=True)
-            return []
+        logger.info(
+            f"📊 Scan Summary | {scan_time.strftime('%H:%M:%S')}\n"
+            f"   Scanned: {result.total_coins_scanned} coins\n"
+            f"   Signals: {result.signal_count} "
+            f"(🟢 {result.buy_signals_count} BUY | 🔴 {result.sell_signals_count} SELL)\n"
+            f"   Errors: {len(errors)}"
+        )
+
+        return result

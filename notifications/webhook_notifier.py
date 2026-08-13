@@ -1,82 +1,56 @@
 """
 Webhook Notifier
 
-HTTP webhook üzerinden sinyal gönderir.
-Discord, Slack, n8n, Make.com vb. ile entegre edilebilir.
+Dispatches JSON payloads over HTTP POST requests to Webhook endpoints (n8n, Make, Discord, Slack).
 """
 
 from __future__ import annotations
 
-
 import logging
-import json
-
 import requests
 
-from models.signal import Signal
 from models.scan_result import ScanResult
+from models.signal import Signal
 from notifications.base import BaseNotifier
 
 logger = logging.getLogger("crypto_bot.notifier.webhook")
 
 
 class WebhookNotifier(BaseNotifier):
-    """Webhook bildirimi."""
+    """Sends JSON webhook alerts over HTTP POST requests."""
 
     @property
     def name(self) -> str:
         return "webhook"
 
-    def __init__(self, url: str, headers: dict = None):
-        self._url = url
-        self._headers = headers or {"Content-Type": "application/json"}
+    def __init__(self, url: str):
+        self.url = url
 
     def send_signal(self, signal: Signal) -> bool:
-        """Sinyali webhook'a POST eder."""
-        try:
-            payload = {
-                "event": "signal",
-                "data": signal.to_dict(),
-            }
-
-            response = requests.post(
-                self._url,
-                json=payload,
-                headers=self._headers,
-                timeout=10,
-            )
-            response.raise_for_status()
-            logger.debug(f"Webhook gönderildi: {signal.symbol}")
-            return True
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Webhook hatası: {e}")
-            return False
+        """Dispatches an individual signal payload to Webhook URL."""
+        payload = {
+            "event": "signal",
+            "data": signal.to_dict(),
+        }
+        return self._post(payload)
 
     def send_summary(self, result: ScanResult) -> bool:
-        """Tarama özetini webhook'a gönderir."""
+        """Dispatches a scan summary payload to Webhook URL."""
+        payload = {
+            "event": "summary",
+            "data": result.to_dict(),
+        }
+        return self._post(payload)
+
+    def _post(self, payload: dict) -> bool:
+        """Executes HTTP POST request to endpoint."""
         try:
-            payload = {
-                "event": "scan_summary",
-                "data": {
-                    "scan_time": result.scan_time.isoformat(),
-                    "total_scanned": result.total_coins_scanned,
-                    "signal_count": result.signal_count,
-                    "buy_count": len(result.buy_signals),
-                    "sell_count": len(result.sell_signals),
-                    "signals": [s.to_dict() for s in result.signals[:20]],
-                },
-            }
-
-            response = requests.post(
-                self._url,
-                json=payload,
-                headers=self._headers,
-                timeout=10,
-            )
-            response.raise_for_status()
-            return True
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Webhook özet hatası: {e}")
+            resp = requests.post(self.url, json=payload, timeout=10)
+            if resp.status_code in (200, 201, 202, 204):
+                logger.info(f"✅ Webhook payload sent to {self.url}")
+                return True
+            logger.error(f"Webhook HTTP error ({resp.status_code}): {resp.text}")
+            return False
+        except Exception as e:
+            logger.error(f"Webhook dispatch error: {e}")
             return False

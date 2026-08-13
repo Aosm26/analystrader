@@ -1,4 +1,4 @@
-"""Strategies package - Tarama stratejileri."""
+"""Strategies Package — Quantitative trading strategies."""
 
 from strategies.base import BaseStrategy
 from strategies.rsi_strategy import RSIStrategy

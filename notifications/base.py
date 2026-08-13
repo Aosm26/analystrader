@@ -1,56 +1,35 @@
 """
-Base Notifier — Bildirim Arayüzü
+Notifier Interface
 
-Tüm bildirim kanalları bu abstract class'tan türer.
+Base interface for all notification dispatch channels.
 """
 
 from __future__ import annotations
 
-
 from abc import ABC, abstractmethod
 
-from models.signal import Signal
 from models.scan_result import ScanResult
+from models.signal import Signal
 
 
 class BaseNotifier(ABC):
-    """Bildirim kanalları için temel arayüz."""
+    """Abstract Base Class for Notification Engines."""
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Bildirim kanalının adı."""
+        """Notifier unique name identifier."""
         pass
 
     @abstractmethod
     def send_signal(self, signal: Signal) -> bool:
-        """
-        Tek bir sinyal bildirimi gönderir.
-
-        Returns:
-            bool: Başarılı ise True
-        """
+        """Sends an individual signal notification."""
         pass
 
     @abstractmethod
     def send_summary(self, result: ScanResult) -> bool:
-        """
-        Tarama özeti bildirimi gönderir.
-
-        Returns:
-            bool: Başarılı ise True
-        """
+        """Sends a consolidated scan summary notification."""
         pass
 
-    def send_signals(self, signals: list[Signal]) -> int:
-        """
-        Birden fazla sinyal gönderir.
-
-        Returns:
-            int: Başarıyla gönderilen sinyal sayısı
-        """
-        sent = 0
-        for signal in signals:
-            if self.send_signal(signal):
-                sent += 1
-        return sent
+    def __repr__(self) -> str:
+        return f"<Notifier: {self.name}>"

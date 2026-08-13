@@ -1,13 +1,12 @@
 """
-RSI Stratejisi
+RSI Strategy
 
-RSI (Relative Strength Index) tabanlı aşırı alım/satım sinyalleri.
-- RSI < oversold_threshold → BUY sinyali
-- RSI > overbought_threshold → SELL sinyali
+Relative Strength Index (RSI) oversold/overbought signal generator.
+- RSI <= oversold_threshold → BUY / STRONG_BUY signal
+- RSI >= overbought_threshold → SELL / STRONG_SELL signal
 """
 
 from __future__ import annotations
-
 
 import logging
 from typing import Optional
@@ -21,7 +20,7 @@ logger = logging.getLogger("crypto_bot.strategy.rsi")
 
 
 class RSIStrategy(BaseStrategy):
-    """RSI aşırı alım/aşırı satım stratejisi."""
+    """RSI Oversold / Overbought Strategy."""
 
     @property
     def name(self) -> str:
@@ -31,7 +30,7 @@ class RSIStrategy(BaseStrategy):
     def description(self) -> str:
         return (
             f"RSI Oversold/Overbought "
-            f"(< {self._oversold} AL | > {self._overbought} SAT)"
+            f"(< {self._oversold} BUY | > {self._overbought} SELL)"
         )
 
     def __init__(self, config: Optional[dict] = None):
@@ -40,10 +39,9 @@ class RSIStrategy(BaseStrategy):
         self._overbought = self.get_config("overbought_threshold", 70)
 
     def analyze(self, df: pd.DataFrame) -> list[Signal]:
-        """RSI değerlerine göre sinyal üretir."""
+        """Generates trading signals based on RSI levels."""
         signals = []
 
-        # RSI sütununu bul
         rsi_col = self._find_column(
             df,
             [
@@ -56,10 +54,9 @@ class RSIStrategy(BaseStrategy):
         )
 
         if rsi_col is None:
-            logger.warning("RSI sütunu bulunamadı, strateji atlanıyor.")
+            logger.warning("RSI column not found, strategy skipped.")
             return signals
 
-        # İsim ve fiyat sütunlarını bul
         name_col = self._find_column(df, ["name", "Name", "ticker", "Symbol"])
         price_col = self._find_column(df, ["close", "Close", "price", "Price"])
 
@@ -76,8 +73,6 @@ class RSIStrategy(BaseStrategy):
                 signal = None
 
                 if rsi_value <= self._oversold:
-                    # Aşırı satım → AL sinyali
-                    # RSI ne kadar düşükse güvenilirlik o kadar yüksek
                     confidence = min(100, (self._oversold - rsi_value) * 3 + 50)
                     strength = "STRONG_BUY" if rsi_value <= 20 else "BUY"
 
@@ -87,12 +82,11 @@ class RSIStrategy(BaseStrategy):
                         strategy_name=self.name,
                         price=price,
                         confidence=confidence,
-                        message=f"RSI aşırı satım bölgesinde: {rsi_value:.1f}",
+                        message=f"RSI oversold level: {rsi_value:.1f}",
                         metadata={"rsi": rsi_value, "threshold": self._oversold},
                     )
 
                 elif rsi_value >= self._overbought:
-                    # Aşırı alım → SAT sinyali
                     confidence = min(100, (rsi_value - self._overbought) * 3 + 50)
                     strength = "STRONG_SELL" if rsi_value >= 80 else "SELL"
 
@@ -102,7 +96,7 @@ class RSIStrategy(BaseStrategy):
                         strategy_name=self.name,
                         price=price,
                         confidence=confidence,
-                        message=f"RSI aşırı alım bölgesinde: {rsi_value:.1f}",
+                        message=f"RSI overbought level: {rsi_value:.1f}",
                         metadata={"rsi": rsi_value, "threshold": self._overbought},
                     )
 
@@ -110,7 +104,7 @@ class RSIStrategy(BaseStrategy):
                     signals.append(signal)
 
             except (ValueError, TypeError) as e:
-                logger.debug(f"Satır atlandı ({idx}): {e}")
+                logger.debug(f"Row skipped ({idx}): {e}")
                 continue
 
         return signals

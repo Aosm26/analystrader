@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-CryptoScreenerBot — Ana Giriş Noktası
+AnalyTrader Crypto Screener Bot — Main Entry Point
 
-TVScreener kütüphanesi ile kripto piyasalarını tarar,
-teknik analiz stratejileri ile sinyal üretir ve
-bildirim gönderir.
+Scans crypto markets via TVScreener API, generates signals using technical
+analysis strategies, and dispatches real-time alerts.
 
-Kullanım:
-    python main.py              # Normal çalıştırma (periyodik tarama)
-    python main.py --once       # Tek seferlik tarama
-    python main.py --discover   # Kullanılabilir field'ları listele
+Usage:
+    python main.py              # Normal periodic scanning
+    python main.py --once       # Single scan cycle execution
+    python main.py --discover   # List available fields
 """
 
 import argparse
@@ -18,7 +17,7 @@ import logging
 import sys
 from pathlib import Path
 
-# Proje kök dizinini sys.path'e ekle
+# Add project root to sys.path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
@@ -33,44 +32,36 @@ from storage import SQLiteStorage
 
 
 class CryptoBot:
-    """Ana bot sınıfı — tüm bileşenleri birleştirir."""
+    """Main Bot Orchestrator — Binds all core components together."""
 
     def __init__(self, config_path: str = "config.yaml"):
-        # Konfigürasyon
         self.settings = Settings(config_path)
         self.logger = setup_logging()
 
-        # Core bileşenler
         self.scanner = CryptoScanner()
         self.analyzer = Analyzer()
         self.scheduler = BotScheduler()
 
-        # Storage
         self.storage = self._init_storage()
-
-        # Notifier'lar
         self.notifiers = self._init_notifiers()
 
-        # Stratejileri kaydet
         self._init_strategies()
 
-        self.logger.info("🤖 CryptoBot başlatıldı.")
+        self.logger.info("🤖 CryptoBot initialized successfully.")
 
     def _init_storage(self) -> SQLiteStorage:
-        """Storage backend'ini başlatır."""
+        """Initializes storage backend."""
         db_path = self.settings.get("storage.path", "data/signals.db")
         return SQLiteStorage(db_path)
 
     def _init_notifiers(self) -> list:
-        """Bildirim kanallarını başlatır."""
+        """Initializes active notification channels."""
         notifiers = []
 
-        # Console
         if self.settings.get("notifications.console.enabled", True):
             colored = self.settings.get("notifications.console.colored", True)
             notifiers.append(ConsoleNotifier(colored=colored))
 
-        # Telegram
         if self.settings.get("notifications.telegram.enabled", False):
             token = self.settings.get("notifications.telegram.bot_token", "")
             chat_id = self.settings.get("notifications.telegram.chat_id", "")
@@ -79,26 +70,25 @@ class CryptoBot:
                 if notifier.test_connection():
                     notifiers.append(notifier)
                 else:
-                    self.logger.warning("Telegram bağlantısı başarısız.")
+                    self.logger.warning("Telegram connection test failed.")
             else:
                 self.logger.warning(
-                    "Telegram token/chat_id ayarlanmamış. "
-                    ".env dosyasını kontrol edin."
+                    "Telegram token/chat_id missing. "
+                    "Check your .env file."
                 )
 
-        # Webhook
         if self.settings.get("notifications.webhook.enabled", False):
             url = self.settings.get("notifications.webhook.url", "")
             if url:
                 notifiers.append(WebhookNotifier(url=url))
 
         self.logger.info(
-            f"Bildirim kanalları: {[n.name for n in notifiers]}"
+            f"Active notification channels: {[n.name for n in notifiers]}"
         )
         return notifiers
 
     def _init_strategies(self) -> None:
-        """Aktif stratejileri kayıt eder."""
+        """Registers enabled strategies from configuration."""
         enabled = self.settings.get("strategies.enabled", [])
 
         strategy_map = {
@@ -114,37 +104,33 @@ class CryptoBot:
                 self.analyzer.register_strategy(strategy)
             else:
                 self.logger.warning(
-                    f"Bilinmeyen strateji: {strategy_name}. Atlanıyor."
+                    f"Unknown strategy: {strategy_name}. Skipping."
                 )
 
         self.logger.info(
-            f"Aktif stratejiler: {self.analyzer.strategy_names}"
+            f"Active strategies: {self.analyzer.strategy_names}"
         )
 
     def scan_cycle(self) -> None:
         """
-        Tek bir tarama döngüsü çalıştırır:
-        1. Tarama yap
-        2. Analiz et
-        3. Sinyalleri kaydet
-        4. Bildirim gönder
+        Executes a single scanning cycle:
+        1. Market Scan
+        2. Signal Analysis
+        3. Database Persistence
+        4. Alert Notifications
         """
         try:
-            # 1. Tarama
             df = self.scanner.scan_with_retry()
 
             if df.empty:
-                self.logger.warning("Tarama sonucu boş, döngü atlanıyor.")
+                self.logger.warning("Scan result empty. Skipping cycle.")
                 return
 
-            # 2. Analiz
             result = self.analyzer.analyze(df)
 
-            # 3. Sinyalleri kaydet
             if result.has_signals:
                 self.storage.save_signals(result.signals)
 
-            # Tarama logunu kaydet
             self.storage.save_scan_log(
                 scan_time=result.scan_time,
                 total_scanned=result.total_coins_scanned,
@@ -152,27 +138,26 @@ class CryptoBot:
                 errors=result.errors,
             )
 
-            # 4. Bildirimleri gönder
             for notifier in self.notifiers:
                 try:
                     notifier.send_summary(result)
                 except Exception as e:
                     self.logger.error(
-                        f"Bildirim hatası ({notifier.name}): {e}"
+                        f"Notification dispatch error ({notifier.name}): {e}"
                     )
 
         except Exception as e:
-            self.logger.error(f"❌ Tarama döngüsü hatası: {e}", exc_info=True)
+            self.logger.error(f"❌ Scan cycle error: {e}", exc_info=True)
 
     def run(self, once: bool = False) -> None:
         """
-        Botu çalıştırır.
+        Starts the bot.
 
         Args:
-            once: True ise tek seferlik tarama yapar, False ise periyodik
+            once: If True, executes single scan cycle and exits. Otherwise runs periodically.
         """
         if once:
-            self.logger.info("📡 Tek seferlik tarama çalıştırılıyor...")
+            self.logger.info("📡 Executing single scan cycle...")
             self.scan_cycle()
         else:
             self.scheduler.schedule_scan(self.scan_cycle)
@@ -181,54 +166,61 @@ class CryptoBot:
         self.shutdown()
 
     def shutdown(self) -> None:
-        """Kaynakları serbest bırakır."""
-        self.logger.info("🛑 Bot kapatılıyor...")
+        """Releases application resources."""
+        self.logger.info("🛑 Shutting down bot...")
         self.storage.close()
-        self.logger.info("✅ Bot başarıyla kapatıldı.")
+        self.logger.info("✅ Bot shutdown completed.")
 
 
 def discover_fields(keyword: str = "") -> None:
-    """Kullanılabilir TVScreener field'larını listeler."""
-    settings = Settings()
+    """Lists available TVScreener fields."""
     scanner = CryptoScanner()
+    all_fields = scanner.get_field_info()
 
     if keyword:
-        fields = scanner.discover_fields(keyword)
-        print(f"\n'{keyword}' ile ilgili {len(fields)} field bulundu:\n")
-        for f in fields:
-            print(f"  • {f}")
+        keyword = keyword.lower()
+        matched = [
+            f for f in all_fields
+            if keyword in f["name"].lower() or keyword in f["label"].lower()
+        ]
+        print(f"\nFound {len(matched)} fields matching '{keyword}':\n")
+        for f in matched:
+            print(f"  • {f['name']:<35} ({f['label']})")
     else:
-        # Temel field'ları göster
-        print("\nTemel field'lar:")
-        for alias, real_name in sorted(CryptoScanner.FIELD_MAP.items()):
-            print(f"  {alias:<35} → {real_name}")
-
+        print(f"\nTotal Available Fields: {len(all_fields)}\n")
+        for f in all_fields[:30]:
+            print(f"  • {f['name']:<35} ({f['label']})")
+        if len(all_fields) > 30:
+            print(
+                f"\n  ... and {len(all_fields) - 30} more. "
+                "(Filter with: python main.py --discover <keyword>)"
+            )
     print()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="CryptoScreenerBot — TVScreener tabanlı kripto sinyal botu",
+        description="AnalyTrader — Quantitative TradingView Crypto Signal Bot",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
         "--once",
         action="store_true",
-        help="Tek seferlik tarama yap ve çık",
+        help="Execute single scan cycle and exit",
     )
     parser.add_argument(
         "--config",
         type=str,
         default="config.yaml",
-        help="Konfigürasyon dosyası yolu (varsayılan: config.yaml)",
+        help="Configuration file path (default: config.yaml)",
     )
     parser.add_argument(
         "--discover",
         type=str,
         nargs="?",
         const="",
-        help="Kullanılabilir field'ları listele. Opsiyonel keyword ile filtrele.",
+        help="List available fields. Optionally filter by keyword.",
     )
 
     args = parser.parse_args()

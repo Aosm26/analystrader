@@ -1,64 +1,51 @@
 """
-Yardımcı Fonksiyonlar
+Helper Utilities
 
-Formatlama, dönüştürme ve genel amaçlı araçlar.
+Data formatting and string manipulation helper functions.
 """
+
+from __future__ import annotations
 
 from typing import Union
 
 
-def format_number(value: Union[int, float], decimals: int = 2) -> str:
-    """
-    Büyük sayıları okunabilir formata çevirir.
-    1_500_000 -> "1.50M"
-    """
-    if value is None:
-        return "--"
-
-    abs_val = abs(value)
-    sign = "-" if value < 0 else ""
-
-    if abs_val >= 1_000_000_000_000:
-        return f"{sign}{abs_val / 1_000_000_000_000:.{decimals}f}T"
-    elif abs_val >= 1_000_000_000:
-        return f"{sign}{abs_val / 1_000_000_000:.{decimals}f}B"
-    elif abs_val >= 1_000_000:
-        return f"{sign}{abs_val / 1_000_000:.{decimals}f}M"
-    elif abs_val >= 1_000:
-        return f"{sign}{abs_val / 1_000:.{decimals}f}K"
-    else:
-        return f"{sign}{abs_val:.{decimals}f}"
-
-
-def format_price(price: float) -> str:
-    """
-    Fiyatı uygun hassasiyetle formatlar.
-    BTC -> $65,432.10
-    Küçük altcoin -> $0.00001234
-    """
+def format_price(price: Union[int, float]) -> str:
+    """Formats numeric price into human readable string with appropriate precision."""
     if price is None:
-        return "--"
-
-    if price >= 1:
-        return f"${price:,.2f}"
-    elif price >= 0.01:
-        return f"${price:.4f}"
-    elif price >= 0.0001:
-        return f"${price:.6f}"
+        return "$0.00"
+    val = float(price)
+    if val < 0.0001:
+        return f"${val:.8f}"
+    elif val < 1.0:
+        return f"${val:.4f}"
     else:
-        return f"${price:.8f}"
+        return f"${val:,.2f}"
 
 
-def format_percent(value: float) -> str:
-    """Yüzde formatlar. Pozitif ise + ekler."""
-    if value is None:
-        return "--"
-    sign = "+" if value > 0 else ""
-    return f"{sign}{value:.2f}%"
+def format_volume(volume: Union[int, float]) -> str:
+    """Formats large numeric volume into abbreviated string (K, M, B)."""
+    if volume is None:
+        return "0"
+    val = float(volume)
+    if val >= 1_000_000_000:
+        return f"${val / 1_000_000_000:.2f}B"
+    elif val >= 1_000_000:
+        return f"${val / 1_000_000:.2f}M"
+    elif val >= 1_000:
+        return f"${val / 1_000:.2f}K"
+    else:
+        return f"${val:.2f}"
 
 
-def truncate(text: str, max_length: int = 50) -> str:
-    """Uzun metinleri kısaltır."""
-    if len(text) <= max_length:
-        return text
-    return text[: max_length - 3] + "..."
+def format_number(val: Union[int, float], decimals: int = 2) -> str:
+    """Formats numbers with comma separators and precision."""
+    if val is None:
+        return "0"
+    return f"{float(val):,.{decimals}f}"
+
+
+def truncate(text: str, max_len: int = 50) -> str:
+    """Truncates string to max_len adding ellipsis if needed."""
+    if not text or len(text) <= max_len:
+        return text or ""
+    return text[: max_len - 3] + "..."

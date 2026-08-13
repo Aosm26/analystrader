@@ -1,15 +1,14 @@
 """
-Base Strategy — Strateji Arayüzü
+Base Strategy Interface
 
-Tüm stratejiler bu abstract class'tan türemelidir.
-Yeni strateji eklemek için:
-    1. Bu sınıftan türeyin
-    2. analyze() ve name property'sini implemente edin
-    3. config.yaml'da stratejinizi etkinleştirin
+All strategies must inherit from BaseStrategy.
+To add a new strategy:
+    1. Inherit from BaseStrategy
+    2. Implement name property and analyze() method
+    3. Enable strategy in config.yaml
 """
 
 from __future__ import annotations
-
 
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -20,55 +19,54 @@ from models.signal import Signal
 
 
 class BaseStrategy(ABC):
-    """Tüm stratejiler için temel arayüz."""
+    """Base interface for all quantitative trading strategies."""
 
     def __init__(self, config: Optional[dict] = None):
         """
         Args:
-            config: Stratejiye özel konfigürasyon (config.yaml'dan gelir)
+            config: Strategy-specific configuration dictionary from config.yaml
         """
         self._config = config or {}
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Stratejinin benzersiz adı."""
+        """Unique strategy name identifier."""
         pass
 
     @property
     def description(self) -> str:
-        """Stratejinin açıklaması (opsiyonel)."""
+        """Human-readable strategy description."""
         return ""
 
     @abstractmethod
     def analyze(self, df: pd.DataFrame) -> list[Signal]:
         """
-        DataFrame'i analiz eder ve sinyal listesi döner.
+        Analyzes market DataFrame and returns generated signals.
 
         Args:
-            df: Scanner'dan gelen tarama sonuçları
+            df: Scanned market data from CryptoScanner
 
         Returns:
-            list[Signal]: Üretilen sinyaller (boş liste olabilir)
+            list[Signal]: List of generated Signal instances
         """
         pass
 
     def get_config(self, key: str, default=None):
-        """Strateji konfigürasyonundan değer alır."""
+        """Retrieves a configuration value for the strategy."""
         return self._config.get(key, default)
 
     def _find_column(self, df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
         """
-        DataFrame'de belirtilen isimlerdeki sütunu bulur.
-        TVScreener sütun isimleri büyük/küçük harf, parantez, alt çizgi ve boşluk
-        farklılıkları gösterebilir. Bu yüzden esnek ve akıllı arama yaparız.
+        Finds matching column in DataFrame flexibly handling casing, spaces,
+        underscores, and parentheses differences in TVScreener columns.
         """
         import re
 
         def normalize(s: str) -> str:
             return re.sub(r"[^a-zA-Z0-9]", "", s).lower()
 
-        # 1. Tam ve küçük harf eşleşmeleri
+        # 1. Exact and lowercase match
         df_cols_lower = {col.lower(): col for col in df.columns}
         for candidate in candidates:
             if candidate in df.columns:
@@ -76,14 +74,14 @@ class BaseStrategy(ABC):
             if candidate.lower() in df_cols_lower:
                 return df_cols_lower[candidate.lower()]
 
-        # 2. Normalize eşleşme (boşluklar, parantezler ve alt çizgiler olmadan)
+        # 2. Normalized match (without spaces, brackets, underscores)
         df_cols_norm = {normalize(col): col for col in df.columns}
         for candidate in candidates:
             cand_norm = normalize(candidate)
             if cand_norm in df_cols_norm:
                 return df_cols_norm[cand_norm]
 
-        # 3. Kısmi normalize eşleşme
+        # 3. Partial normalized match
         for candidate in candidates:
             cand_norm = normalize(candidate)
             if len(cand_norm) < 3:

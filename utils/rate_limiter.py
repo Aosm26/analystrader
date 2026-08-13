@@ -1,59 +1,44 @@
 """
-Rate Limiter
+Rate Limiter Utility
 
-API çağrılarını hız sınırına tabi tutar.
-TradingView'in rate limit'ine takılmamak için.
+Enforces rate limits to prevent API throttling and 429 status codes.
 """
 
-import time
-import logging
-from collections import deque
-from threading import Lock
+from __future__ import annotations
 
-logger = logging.getLogger("crypto_bot.rate_limiter")
+import logging
+import time
+from collections import deque
+
+logger = logging.getLogger("crypto_bot.utils.rate_limiter")
 
 
 class RateLimiter:
-    """
-    Token bucket benzeri rate limiter.
-    Belirli süre içinde maksimum çağrı sayısını sınırlar.
-    """
+    """Thread-safe rate limiter based on sliding window."""
 
-    def __init__(self, max_calls: int = 10, period: float = 60.0):
-        """
-        Args:
-            max_calls: Dönem içinde izin verilen maksimum çağrı
-            period: Dönem süresi (saniye)
-        """
+    def __init__(self, max_calls: int = 5, period: float = 60.0):
         self.max_calls = max_calls
         self.period = period
-        self._calls: deque = deque()
-        self._lock = Lock()
+        self.timestamps = deque()
 
     def wait_if_needed(self) -> None:
-        """
-        Rate limit'e takılacaksak, uygun süre kadar bekler.
-        """
-        with self._lock:
-            now = time.time()
-
-            # Süresi dolmuş kayıtları temizle
-            while self._calls and self._calls[0] <= now - self.period:
-                self._calls.popleft()
-
-            if len(self._calls) >= self.max_calls:
-                # En eski çağrının süresinin dolmasını bekle
-                sleep_time = self._calls[0] - (now - self.period)
-                if sleep_time > 0:
-                    logger.debug(f"Rate limit: {sleep_time:.1f}s bekleniyor...")
-                    time.sleep(sleep_time)
-
-            self._calls.append(time.time())
-
-    @property
-    def remaining_calls(self) -> int:
-        """Kalan çağrı hakkı."""
+        """Blocks thread execution if max_calls limit within period is reached."""
         now = time.time()
-        while self._calls and self._calls[0] <= now - self.period:
-            self._calls.popleft()
-        return max(0, self.max_calls - len(self._calls))
+
+        while self.timestamps and (now - self.timestamps[0]) > self.period:
+            self.timestamps.popleft()
+
+        if len(self.timestamps) >= self.max_calls:
+            sleep_time = self.period - (now - self.timestamps[0]) + 0.5
+            if sleep_time > 0:
+                logger.info(
+                    f"⏳ Rate limit threshold reached ({self.max_calls} calls/{self.period}s). "
+                    f"Waiting {sleep_time:.1f}s..."
+                )
+                time.sleep(sleep_time)
+                now = time.time()
+
+                while self.timestamps and (now - self.timestamps[0]) > self.period:
+                    self.timestamps.popleft()
+
+        self.timestamps.append(now)

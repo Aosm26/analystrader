@@ -1,52 +1,53 @@
 """
-Signal Modeli
+Signal Models & Enums
 
-Bir strateji tarafından üretilen sinyali temsil eder.
+Defines Signal dataclass and SignalType enumeration.
 """
 
 from __future__ import annotations
 
-
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
-class SignalType(Enum):
-    """Sinyal türü."""
+class SignalType(str, Enum):
+    """Signal direction and strength enumeration."""
+
     BUY = "BUY"
     SELL = "SELL"
     STRONG_BUY = "STRONG_BUY"
     STRONG_SELL = "STRONG_SELL"
     NEUTRAL = "NEUTRAL"
 
-
-@dataclass
-class Signal:
-    """Tek bir trade sinyali."""
-
-    symbol: str                          # Coin sembolü (ör: BTCUSDT)
-    signal_type: SignalType              # BUY, SELL, vs.
-    strategy_name: str                   # Sinyali üreten strateji
-    price: float                         # Sinyal anındaki fiyat
-    confidence: float = 0.0             # Güvenilirlik skoru (0-100)
-    message: str = ""                    # Açıklama mesajı
-    metadata: dict = field(default_factory=dict)  # Ek veriler (RSI değeri, hacim vs.)
-    timestamp: datetime = field(default_factory=datetime.now)
-    id: Optional[int] = None            # DB ID (storage tarafından atanır)
-
     @property
     def is_buy(self) -> bool:
-        return self.signal_type in (SignalType.BUY, SignalType.STRONG_BUY)
+        return self in (SignalType.BUY, SignalType.STRONG_BUY)
 
     @property
     def is_sell(self) -> bool:
-        return self.signal_type in (SignalType.SELL, SignalType.STRONG_SELL)
+        return self in (SignalType.SELL, SignalType.STRONG_SELL)
 
-    def to_dict(self) -> dict:
-        """Sinyali sözlük olarak döner (JSON serileştirme için)."""
+
+@dataclass
+class Signal:
+    """Dataclass representing a quantitative signal."""
+
+    symbol: str
+    signal_type: SignalType
+    strategy_name: str
+    price: float
+    confidence: float = 0.0
+    message: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=datetime.now)
+    id: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Converts Signal instance to dictionary representation."""
         return {
+            "id": self.id,
             "symbol": self.symbol,
             "signal_type": self.signal_type.value,
             "strategy_name": self.strategy_name,
@@ -57,10 +58,9 @@ class Signal:
             "timestamp": self.timestamp.isoformat(),
         }
 
-    def __str__(self) -> str:
-        emoji = "🟢" if self.is_buy else "🔴" if self.is_sell else "⚪"
+    def __repr__(self) -> str:
         return (
-            f"{emoji} {self.signal_type.value} | {self.symbol} | "
-            f"${self.price:,.2f} | {self.strategy_name} | "
-            f"Güven: {self.confidence:.0f}%"
+            f"Signal({self.symbol} | {self.signal_type.value} | "
+            f"price=${self.price:,.2f} | conf={self.confidence:.0f}% | "
+            f"strategy={self.strategy_name})"
         )

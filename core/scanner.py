@@ -1,22 +1,13 @@
 """
-Crypto Scanner
+Scanner Module — TVScreener Integration
 
-TVScreener kütüphanesini saran wrapper modül.
-CryptoScreener üzerinden TradingView verisi çeker.
-
-TVScreener v0.0.11 API'si:
-    - CryptoScreener() → screener oluştur
-    - screener.specific_fields = CryptoField (veya liste)
-    - screener.add_filter(field, FilterOperator.XXX, value)
-    - screener.set_range(0, 100)
-    - df = screener.get()
+Scans cryptocurrency markets via TVScreener API and returns dataframes.
 """
 
 from __future__ import annotations
 
-
 import logging
-from typing import Optional, List
+from typing import List, Optional
 
 import pandas as pd
 
@@ -27,11 +18,7 @@ logger = logging.getLogger("crypto_bot.scanner")
 
 
 class CryptoScanner:
-    """
-    TradingView Screener üzerinden kripto verisi çeken ana modül.
-
-    TVScreener v0.0.11 ile uyumlu wrapper.
-    """
+    """Crypto Screener class wrapping tvscreener."""
 
     def __init__(self):
         self.settings = Settings()
@@ -44,8 +31,8 @@ class CryptoScanner:
         exchanges: Optional[list[str]] = None,
     ):
         """
-        Her tarama için taze bir CryptoScreener oluşturur.
-        (v0.0.11 API'si state tuttuğu için her seferinde yeni instance.)
+        Creates a fresh CryptoScreener instance per scan.
+        (v0.0.11 API is stateful, so a new instance is required each time).
         """
         try:
             import tvscreener as tvs
@@ -53,33 +40,26 @@ class CryptoScanner:
             from tvscreener.filter import FilterOperator
         except ImportError:
             raise ImportError(
-                "tvscreener kütüphanesi yüklü değil. "
-                "Yüklemek için: pip install tvscreener"
+                "tvscreener library is not installed. "
+                "Install with: pip install tvscreener"
             )
 
         screener = tvs.CryptoScreener()
 
-        # Field'ları ayarla (None ise tüm varsayılan field'lar kullanılır)
         if fields:
             screener.specific_fields = fields
-        # else: varsayılan CryptoField kullanılır (tüm field'lar)
 
-        # Borsa filtresi (Tek bir borsa tanımlandıysa API seviyesinde filtrele)
         if exchanges and len(exchanges) == 1:
             try:
                 screener.add_filter("exchange", FilterOperator.MATCH, exchanges[0])
             except Exception as e:
-                logger.debug(f"API borsa filtresi ekleme uyarısı: {e}")
+                logger.debug(f"API exchange filter warning: {e}")
 
-        # Sonuç aralığını ayarla
         screener.set_range(0, limit)
-
         return screener
 
     def _resolve_field_list(self, field_names: list[str]) -> list:
-        """
-        Config'deki field isimlerini CryptoField enum değerlerine çevirir.
-        """
+        """Resolves config field names to CryptoField enum instances."""
         try:
             from tvscreener.field.crypto import CryptoField
         except ImportError:
@@ -87,13 +67,11 @@ class CryptoScanner:
 
         resolved = []
         for name in field_names:
-            # CryptoField enum adıyla eşleştir (büyük harfe çevir)
             enum_name = name.upper()
             try:
                 field = CryptoField[enum_name]
                 resolved.append(field)
             except KeyError:
-                # Alias desteği
                 alias_map = {
                     "RSI": "RELATIVE_STRENGTH_INDEX_14",
                     "RSI14": "RELATIVE_STRENGTH_INDEX_14",
@@ -113,11 +91,11 @@ class CryptoScanner:
                         field = CryptoField[mapped]
                         resolved.append(field)
                     except KeyError:
-                        logger.warning(f"Field bulunamadı: {name}")
+                        logger.warning(f"Field not found: {name}")
                 else:
-                    logger.warning(f"Field bulunamadı: {name} -> {enum_name}")
+                    logger.warning(f"Field not found: {name} -> {enum_name}")
 
-        return resolved if resolved else None  # None = tüm field'lar
+        return resolved if resolved else None
 
     FIELD_MAP = {
         "name": "NAME",
@@ -143,19 +121,18 @@ class CryptoScanner:
         exchanges: Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """
-        Kripto piyasasını tarar ve DataFrame döner.
+        Scans cryptocurrency market and returns a Pandas DataFrame.
 
         Args:
-            limit: Maksimum sonuç sayısı
-            custom_fields: Özel field listesi (None ise config'den alınır)
-            exchanges: İstenen borsa isimleri listesi (Örn: ["BINANCE", "KCEX"])
+            limit: Maximum result count
+            custom_fields: Custom field list (defaults to config if None)
+            exchanges: Target exchange names (e.g. ["BINANCE", "KCEX"])
 
         Returns:
-            pd.DataFrame: Tarama sonuçları
+            pd.DataFrame: Scan results
         """
         self.rate_limiter.wait_if_needed()
 
-        # Parametreleri belirle
         if limit is None:
             limit = self.settings.get("scanner.default_limit", 100)
 
@@ -165,27 +142,22 @@ class CryptoScanner:
             else self.settings.get("scanner.exchanges", [])
         )
 
-        # Field'ları çözümle
         field_names = custom_fields or self.settings.get("scanner.fields", [])
         fields = self._resolve_field_list(field_names) if field_names else None
 
-        # Borsa filtresi varsa daha fazla satır çek ki filtreleme sonrası istenen miktara ulaşılsın
         fetch_limit = limit * 4 if target_exchanges else limit
 
-        # Screener oluştur
         screener = self._build_screener(
             fields=fields, limit=fetch_limit, exchanges=target_exchanges
         )
 
-        # Veriyi çek
         try:
-            logger.info(f"📡 Tarama başlatılıyor (limit={limit})...")
+            logger.info(f"📡 Scan initiated (limit={limit})...")
             df = screener.get()
 
             if df is not None and not df.empty:
-                logger.info(f"✅ {len(df)} coin çekildi. Sütunlar: {list(df.columns)}")
+                logger.info(f"✅ {len(df)} coins fetched. Columns: {list(df.columns)}")
 
-                # Borsa filtresi uygula (Symbol index veya Exchange sütunu)
                 if target_exchanges:
                     ex_upper = [e.upper() for e in target_exchanges]
 
@@ -202,25 +174,23 @@ class CryptoScanner:
                         df = df.iloc[:limit].reset_index(drop=True)
 
                     logger.info(
-                        f"🔍 Borsa filtresi uygulandı ({', '.join(ex_upper)}): "
-                        f"{initial_count} -> {len(df)} coin kaldı."
+                        f"🔍 Exchange filter applied ({', '.join(ex_upper)}): "
+                        f"{initial_count} -> {len(df)} coins remaining."
                     )
             else:
-                logger.warning("Tarama sonucu boş döndü.")
+                logger.warning("Scan result returned empty dataframe.")
                 df = pd.DataFrame()
 
             return df
 
         except Exception as e:
-            logger.error(f"❌ Tarama hatası: {e}", exc_info=True)
+            logger.error(f"❌ Scan error: {e}", exc_info=True)
             return pd.DataFrame()
 
     def scan_with_retry(
         self, max_retries: int = 3, **kwargs
     ) -> pd.DataFrame:
-        """
-        Hata durumunda tekrar deneyen tarama.
-        """
+        """Executes scan with exponential retry on failure."""
         import time
 
         for attempt in range(1, max_retries + 1):
@@ -228,19 +198,19 @@ class CryptoScanner:
                 return self.scan(**kwargs)
             except Exception as e:
                 logger.warning(
-                    f"Tarama denemesi {attempt}/{max_retries} başarısız: {e}"
+                    f"Scan attempt {attempt}/{max_retries} failed: {e}"
                 )
                 if attempt < max_retries:
-                    wait_time = attempt * 5  # 5s, 10s, 15s
-                    logger.info(f"⏳ {wait_time}s sonra tekrar denenecek...")
+                    wait_time = attempt * 5
+                    logger.info(f"⏳ Retrying in {wait_time}s...")
                     time.sleep(wait_time)
 
-        logger.error("❌ Tüm tarama denemeleri başarısız.")
+        logger.error("❌ All scan attempts failed.")
         return pd.DataFrame()
 
     @staticmethod
     def list_available_fields() -> list[str]:
-        """Kullanılabilir CryptoField isimlerini listeler."""
+        """Lists available CryptoField names."""
         try:
             from tvscreener.field.crypto import CryptoField
             return [f.name for f in CryptoField]
@@ -249,7 +219,7 @@ class CryptoScanner:
 
     @staticmethod
     def get_field_info() -> list[dict]:
-        """Her field hakkında detaylı bilgi döner."""
+        """Returns detailed field metadata."""
         try:
             from tvscreener.field.crypto import CryptoField
             info = []
@@ -263,7 +233,7 @@ class CryptoScanner:
             return []
 
     def discover_fields(self, keyword: str = "") -> list[str]:
-        """Arama kelimesine göre kullanılabilir field isimlerini döner."""
+        """Returns matching field names based on keyword search."""
         fields = self.list_available_fields()
         if not keyword:
             return fields

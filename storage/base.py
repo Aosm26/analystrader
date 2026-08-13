@@ -1,30 +1,30 @@
 """
-Base Storage — Depolama Arayüzü
+Storage Base Interface
 
-Tüm depolama backend'leri bu abstract class'tan türer.
+Abstract base class for all signal persistence engines.
 """
 
 from __future__ import annotations
-
 
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional
 
+from models.scan_result import ScanResult
 from models.signal import Signal
 
 
 class BaseStorage(ABC):
-    """Depolama arayüzü."""
+    """Abstract persistence interface."""
 
     @abstractmethod
     def save_signal(self, signal: Signal) -> bool:
-        """Tek bir sinyali kaydeder."""
+        """Saves a single signal."""
         pass
 
     @abstractmethod
     def save_signals(self, signals: list[Signal]) -> int:
-        """Birden fazla sinyali kaydeder. Kaydedilen sayısını döner."""
+        """Saves multiple signals in batch."""
         pass
 
     @abstractmethod
@@ -35,19 +35,21 @@ class BaseStorage(ABC):
         since: Optional[datetime] = None,
         limit: int = 100,
     ) -> list[Signal]:
-        """Filtrelere göre sinyalleri getirir."""
+        """Queries stored signals by filters."""
         pass
 
     @abstractmethod
-    def get_signal_count(
+    def save_scan_log(
         self,
-        symbol: Optional[str] = None,
-        since: Optional[datetime] = None,
-    ) -> int:
-        """Sinyal sayısını döner."""
+        scan_time: datetime,
+        total_scanned: int,
+        signal_count: int,
+        errors: list[str],
+    ) -> None:
+        """Saves scan cycle log metrics."""
         pass
 
     @abstractmethod
     def close(self) -> None:
-        """Bağlantıyı kapatır."""
+        """Closes storage connection resources."""
         pass

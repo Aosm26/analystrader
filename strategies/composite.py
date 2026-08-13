@@ -1,17 +1,14 @@
 """
-Composite Strategy — Birleşik Strateji
+Composite (Confluence) Strategy
 
-Birden fazla stratejiyi kombine eder.
-Sadece birden fazla strateji aynı anda sinyal verirse
-nihai sinyal üretir (confluence/birleşim).
+Combines signals from multiple strategies for a single asset.
+Requires agreement across sub-strategies to generate high-confidence signals.
 """
 
 from __future__ import annotations
 
-
 import logging
-from collections import defaultdict
-from typing import Optional
+from typing import List, Optional
 
 import pandas as pd
 
@@ -22,115 +19,85 @@ logger = logging.getLogger("crypto_bot.strategy.composite")
 
 
 class CompositeStrategy(BaseStrategy):
-    """
-    Birden fazla stratejiyi birleştiren meta-strateji.
-
-    Sadece minimum_agreement sayıda strateji aynı coin için
-    aynı yönde sinyal verirse nihai sinyal üretir.
-    """
+    """Confluence Strategy requiring multi-strategy agreement."""
 
     @property
     def name(self) -> str:
-        return "composite"
+        return "composite_strategy"
 
     @property
     def description(self) -> str:
-        strategy_names = [s.name for s in self._sub_strategies]
-        return (
-            f"Composite ({', '.join(strategy_names)}) - "
-            f"min {self._min_agreement} uyum"
-        )
+        return f"Confluence Strategy ({len(self._sub_strategies)} sub-strategies)"
 
     def __init__(
         self,
-        strategies: list[BaseStrategy],
-        min_agreement: int = 2,
+        sub_strategies: List[BaseStrategy],
         config: Optional[dict] = None,
     ):
-        """
-        Args:
-            strategies: Alt stratejiler
-            min_agreement: Sinyal üretmek için minimum kaç strateji
-                          aynı yönde olmalı
-            config: Ek konfigürasyon
-        """
         super().__init__(config)
-        self._sub_strategies = strategies
-        self._min_agreement = min_agreement
+        self._sub_strategies = sub_strategies
+        self._min_agreement = self.get_config("min_agreement", 2)
 
     def analyze(self, df: pd.DataFrame) -> list[Signal]:
-        """
-        Alt stratejileri çalıştırır, uyumlu sinyalleri birleştirir.
-        """
-        # Her stratejiyi çalıştır ve sinyalleri topla
-        all_signals: dict[str, list[Signal]] = defaultdict(list)
-
+        """Combines sub-strategy signals and evaluates agreement."""
+        all_signals: list[Signal] = []
         for strategy in self._sub_strategies:
-            try:
-                signals = strategy.analyze(df)
-                for signal in signals:
-                    all_signals[signal.symbol].append(signal)
-            except Exception as e:
-                logger.warning(f"Alt strateji hatası ({strategy.name}): {e}")
+            all_signals.extend(strategy.analyze(df))
 
-        # Confluence kontrolü
-        composite_signals = []
+        symbol_signals: dict[str, list[Signal]] = {}
+        for sig in all_signals:
+            symbol_signals.setdefault(sig.symbol, []).append(sig)
 
-        for symbol, symbol_signals in all_signals.items():
-            buy_signals = [s for s in symbol_signals if s.is_buy]
-            sell_signals = [s for s in symbol_signals if s.is_sell]
+        composite_signals: list[Signal] = []
 
-            # Buy confluence
-            if len(buy_signals) >= self._min_agreement:
-                avg_confidence = sum(s.confidence for s in buy_signals) / len(buy_signals)
-                # Confluence ile güvenilirlik artar
-                boosted_confidence = min(100, avg_confidence * 1.2)
+        for symbol, sigs in symbol_signals.items():
+            buy_count = sum(1 for s in sigs if s.signal_type.is_buy)
+            sell_count = sum(1 for s in sigs if s.signal_type.is_sell)
 
-                strategies_agreed = [s.strategy_name for s in buy_signals]
-                first_signal = buy_signals[0]
-
-                composite_signal = Signal(
-                    symbol=symbol,
-                    signal_type=SignalType.STRONG_BUY,
-                    strategy_name=self.name,
-                    price=first_signal.price,
-                    confidence=boosted_confidence,
-                    message=(
-                        f"🎯 Confluence AL: {len(buy_signals)} strateji uyumlu "
-                        f"({', '.join(strategies_agreed)})"
-                    ),
-                    metadata={
-                        "sub_signals": [s.to_dict() for s in buy_signals],
-                        "strategies_agreed": strategies_agreed,
-                        "agreement_count": len(buy_signals),
-                    },
+            if buy_count >= self._min_agreement and buy_count > sell_count:
+                avg_confidence = (
+                    sum(s.confidence for s in sigs if s.signal_type.is_buy)
+                    / buy_count
                 )
-                composite_signals.append(composite_signal)
+                boosted = min(100.0, avg_confidence * 1.2)
+                price = sigs[0].price
 
-            # Sell confluence
-            if len(sell_signals) >= self._min_agreement:
-                avg_confidence = sum(s.confidence for s in sell_signals) / len(sell_signals)
-                boosted_confidence = min(100, avg_confidence * 1.2)
-
-                strategies_agreed = [s.strategy_name for s in sell_signals]
-                first_signal = sell_signals[0]
-
-                composite_signal = Signal(
-                    symbol=symbol,
-                    signal_type=SignalType.STRONG_SELL,
-                    strategy_name=self.name,
-                    price=first_signal.price,
-                    confidence=boosted_confidence,
-                    message=(
-                        f"🎯 Confluence SAT: {len(sell_signals)} strateji uyumlu "
-                        f"({', '.join(strategies_agreed)})"
-                    ),
-                    metadata={
-                        "sub_signals": [s.to_dict() for s in sell_signals],
-                        "strategies_agreed": strategies_agreed,
-                        "agreement_count": len(sell_signals),
-                    },
+                composite_signals.append(
+                    Signal(
+                        symbol=symbol,
+                        signal_type=SignalType.STRONG_BUY,
+                        strategy_name=self.name,
+                        price=price,
+                        confidence=boosted,
+                        message=f"Strong BUY confluence: {buy_count} sub-strategies agree",
+                        metadata={
+                            "buy_count": buy_count,
+                            "strategies": [s.strategy_name for s in sigs if s.signal_type.is_buy],
+                        },
+                    )
                 )
-                composite_signals.append(composite_signal)
+
+            elif sell_count >= self._min_agreement and sell_count > buy_count:
+                avg_confidence = (
+                    sum(s.confidence for s in sigs if s.signal_type.is_sell)
+                    / sell_count
+                )
+                boosted = min(100.0, avg_confidence * 1.2)
+                price = sigs[0].price
+
+                composite_signals.append(
+                    Signal(
+                        symbol=symbol,
+                        signal_type=SignalType.STRONG_SELL,
+                        strategy_name=self.name,
+                        price=price,
+                        confidence=boosted,
+                        message=f"Strong SELL confluence: {sell_count} sub-strategies agree",
+                        metadata={
+                            "sell_count": sell_count,
+                            "strategies": [s.strategy_name for s in sigs if s.signal_type.is_sell],
+                        },
+                    )
+                )
 
         return composite_signals

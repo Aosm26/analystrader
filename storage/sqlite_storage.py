@@ -1,12 +1,10 @@
 """
-SQLite Storage
+SQLite Storage Implementation
 
-Sinyalleri SQLite veritabanında saklar.
-Hafif, dosya tabanlı, kurulum gerektirmeyen depolama.
+Persists signals and scan logs in an indexed SQLite database file.
 """
 
 from __future__ import annotations
-
 
 import json
 import logging
@@ -22,7 +20,7 @@ logger = logging.getLogger("crypto_bot.storage.sqlite")
 
 
 class SQLiteStorage(BaseStorage):
-    """SQLite tabanlı sinyal depolama."""
+    """SQLite signal and scan log database."""
 
     def __init__(self, db_path: str = "data/signals.db"):
         self._db_path = db_path
@@ -30,10 +28,10 @@ class SQLiteStorage(BaseStorage):
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._create_tables()
-        logger.info(f"SQLite veritabanı açıldı: {db_path}")
+        logger.info(f"SQLite database opened: {db_path}")
 
     def _create_tables(self) -> None:
-        """Gerekli tabloları oluşturur."""
+        """Initializes database schema and indices."""
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS signals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +65,7 @@ class SQLiteStorage(BaseStorage):
         self._conn.commit()
 
     def save_signal(self, signal: Signal) -> bool:
-        """Tek bir sinyali kaydeder."""
+        """Saves a single signal."""
         try:
             self._conn.execute(
                 """
@@ -91,11 +89,11 @@ class SQLiteStorage(BaseStorage):
             return True
 
         except sqlite3.Error as e:
-            logger.error(f"Sinyal kaydetme hatası: {e}")
+            logger.error(f"Save signal error: {e}")
             return False
 
     def save_signals(self, signals: list[Signal]) -> int:
-        """Birden fazla sinyali toplu kaydeder."""
+        """Batch saves multiple signals."""
         saved = 0
         try:
             for signal in signals:
@@ -120,10 +118,10 @@ class SQLiteStorage(BaseStorage):
                 saved += 1
 
             self._conn.commit()
-            logger.info(f"💾 {saved} sinyal kaydedildi.")
+            logger.info(f"💾 {saved} signals saved to SQLite.")
 
         except sqlite3.Error as e:
-            logger.error(f"Toplu kaydetme hatası: {e}")
+            logger.error(f"Batch save error: {e}")
             self._conn.rollback()
 
         return saved
@@ -135,7 +133,7 @@ class SQLiteStorage(BaseStorage):
         since: Optional[datetime] = None,
         limit: int = 100,
     ) -> list[Signal]:
-        """Filtrelere göre sinyalleri getirir."""
+        """Queries stored signals matching filters."""
         query = "SELECT * FROM signals WHERE 1=1"
         params = []
 
@@ -174,7 +172,7 @@ class SQLiteStorage(BaseStorage):
             return signals
 
         except sqlite3.Error as e:
-            logger.error(f"Sinyal sorgulama hatası: {e}")
+            logger.error(f"Signal query error: {e}")
             return []
 
     def get_signal_count(
@@ -182,7 +180,7 @@ class SQLiteStorage(BaseStorage):
         symbol: Optional[str] = None,
         since: Optional[datetime] = None,
     ) -> int:
-        """Sinyal sayısını döner."""
+        """Returns signal count matching filters."""
         query = "SELECT COUNT(*) FROM signals WHERE 1=1"
         params = []
 
@@ -197,7 +195,7 @@ class SQLiteStorage(BaseStorage):
             cursor = self._conn.execute(query, params)
             return cursor.fetchone()[0]
         except sqlite3.Error as e:
-            logger.error(f"Sayım hatası: {e}")
+            logger.error(f"Count query error: {e}")
             return 0
 
     def save_scan_log(
@@ -207,7 +205,7 @@ class SQLiteStorage(BaseStorage):
         signal_count: int,
         errors: list[str],
     ) -> None:
-        """Tarama logunu kaydeder."""
+        """Saves scan cycle log metrics."""
         try:
             self._conn.execute(
                 """
@@ -224,10 +222,10 @@ class SQLiteStorage(BaseStorage):
             )
             self._conn.commit()
         except sqlite3.Error as e:
-            logger.error(f"Scan log hatası: {e}")
+            logger.error(f"Scan log error: {e}")
 
     def close(self) -> None:
-        """Veritabanı bağlantısını kapatır."""
+        """Closes SQLite database connection."""
         if self._conn:
             self._conn.close()
-            logger.info("SQLite bağlantısı kapatıldı.")
+            logger.info("SQLite connection closed.")

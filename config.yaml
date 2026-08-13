@@ -1,13 +1,13 @@
 bot:
   name: "CryptoScreenerBot"
-  scan_interval: 300  # saniye (5 dakika)
-  timezone: "Europe/Istanbul"
+  scan_interval: 300  # Interval in seconds (5 minutes)
+  timezone: "UTC"
 
 scanner:
   screener_type: "crypto"
   default_limit: 100
-  min_volume: 500000  # Minimum hacim filtresi (USD)
-  exchanges: ["BINANCE", "KCEX"]  # İstenen borsalar (Örn: ["BINANCE", "KCEX", "BYBIT", "MEXC"]). Boş ise tüm borsalar taranır.
+  min_volume: 500000  # Minimum 24h volume filter in USD
+  exchanges: ["BINANCE"]  # Target exchanges (e.g. ["BINANCE", "KCEX", "BYBIT", "MEXC"]). Leave empty [] for all.
   fields:
     - name
     - close
@@ -40,7 +40,7 @@ strategies:
 
 notifications:
   telegram:
-    enabled: false  # .env'de token ayarlayınca true yap
+    enabled: false  # Set true after configuring credentials in .env
     bot_token: "${TELEGRAM_BOT_TOKEN}"
     chat_id: "${TELEGRAM_CHAT_ID}"
 

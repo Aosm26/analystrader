@@ -1,8 +1,8 @@
 """
-Konfigürasyon Yönetimi
+Configuration Management
 
-YAML dosyasından ve .env'den ayarları yükler.
-Singleton pattern kullanarak tüm uygulama boyunca tek instance sağlar.
+Loads settings from YAML files and environment variables (.env).
+Uses Singleton pattern to provide a single instance across the app.
 """
 
 import os
@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 
 class Settings:
-    """Uygulama konfigürasyonu — Singleton."""
+    """Application Configuration — Singleton."""
 
     _instance = None
     _config: dict = {}
@@ -27,26 +27,21 @@ class Settings:
         return cls._instance
 
     def _load(self, config_path: str) -> None:
-        """YAML konfigürasyonunu ve .env dosyasını yükler."""
-        # .env dosyasını yükle
+        """Loads YAML configuration and .env file."""
         env_path = Path(config_path).parent / ".env"
         load_dotenv(env_path)
 
-        # YAML dosyasını oku
         config_file = Path(config_path)
         if not config_file.exists():
-            raise FileNotFoundError(f"Konfigürasyon dosyası bulunamadı: {config_path}")
+            raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
         with open(config_file, "r", encoding="utf-8") as f:
             raw_config = yaml.safe_load(f)
 
-        # Ortam değişkenlerini çözümle
         self._config = self._resolve_env_vars(raw_config)
 
     def _resolve_env_vars(self, obj: Any) -> Any:
-        """
-        YAML içindeki ${ENV_VAR} referanslarını gerçek değerlerle değiştirir.
-        """
+        """Replaces ${ENV_VAR} references with environment variable values."""
         if isinstance(obj, str):
             pattern = re.compile(r"\$\{(\w+)\}")
             matches = pattern.findall(obj)
@@ -62,8 +57,8 @@ class Settings:
 
     def get(self, key: str, default: Any = None) -> Any:
         """
-        Noktalı notasyon ile ayar değeri alır.
-        Örnek: settings.get("scanner.default_limit", 100)
+        Retrieves setting value using dot notation.
+        Example: settings.get("scanner.default_limit", 100)
         """
         keys = key.split(".")
         value = self._config
@@ -78,12 +73,12 @@ class Settings:
 
     @property
     def config(self) -> dict:
-        """Ham konfigürasyon sözlüğünü döner."""
+        """Returns raw configuration dictionary."""
         return self._config
 
     @classmethod
     def reset(cls) -> None:
-        """Singleton instance'ı sıfırlar (test amaçlı)."""
+        """Resets singleton instance (for testing)."""
         cls._instance = None
         cls._config = {}
 

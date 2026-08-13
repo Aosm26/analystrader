@@ -1,13 +1,12 @@
 """
-MACD Stratejisi
+MACD Strategy
 
-MACD (Moving Average Convergence Divergence) kesişim sinyalleri.
-- MACD çizgisi sinyal çizgisini yukarı keserse → BUY
-- MACD çizgisi sinyal çizgisini aşağı keserse → SELL
+Moving Average Convergence Divergence (MACD) crossover signal generator.
+- MACD line crosses signal line upward -> BUY
+- MACD line crosses signal line downward -> SELL
 """
 
 from __future__ import annotations
-
 
 import logging
 from typing import Optional
@@ -21,7 +20,7 @@ logger = logging.getLogger("crypto_bot.strategy.macd")
 
 
 class MACDStrategy(BaseStrategy):
-    """MACD crossover stratejisi."""
+    """MACD crossover strategy."""
 
     @property
     def name(self) -> str:
@@ -36,10 +35,9 @@ class MACDStrategy(BaseStrategy):
         self._signal_type = self.get_config("signal_type", "both")
 
     def analyze(self, df: pd.DataFrame) -> list[Signal]:
-        """MACD ve sinyal çizgisi farkına göre sinyal üretir."""
+        """Generates signals based on MACD and Signal line values."""
         signals = []
 
-        # MACD sütunlarını bul
         macd_col = self._find_column(
             df, ["MACD.macd", "macd_level", "MACD_LEVEL_12_26_9", "MACD"]
         )
@@ -48,10 +46,9 @@ class MACDStrategy(BaseStrategy):
         )
 
         if macd_col is None:
-            logger.warning("MACD sütunu bulunamadı, strateji atlanıyor.")
+            logger.warning("MACD column not found, strategy skipped.")
             return signals
 
-        # İsim ve fiyat sütunlarını bul
         name_col = self._find_column(df, ["name", "Name", "ticker", "Symbol"])
         price_col = self._find_column(df, ["close", "Close", "price", "Price"])
 
@@ -62,7 +59,6 @@ class MACDStrategy(BaseStrategy):
                     continue
 
                 macd_value = float(macd_value)
-
                 symbol = str(row.get(name_col, idx)) if name_col else str(idx)
                 price = float(row.get(price_col, 0)) if price_col else 0.0
 
@@ -74,7 +70,6 @@ class MACDStrategy(BaseStrategy):
                         signal_value = float(signal_value)
                         histogram = macd_value - signal_value
 
-                        # Bullish: MACD > Signal (histogram pozitif)
                         if histogram > 0 and self._signal_type in ("bullish", "both"):
                             confidence = min(100, abs(histogram) * 10 + 40)
                             signal = Signal(
@@ -94,7 +89,6 @@ class MACDStrategy(BaseStrategy):
                                 },
                             )
 
-                        # Bearish: MACD < Signal (histogram negatif)
                         elif histogram < 0 and self._signal_type in ("bearish", "both"):
                             confidence = min(100, abs(histogram) * 10 + 40)
                             signal = Signal(
@@ -114,7 +108,6 @@ class MACDStrategy(BaseStrategy):
                                 },
                             )
                 else:
-                    # Sinyal çizgisi yoksa, sadece MACD yönüne bak
                     if macd_value > 0 and self._signal_type in ("bullish", "both"):
                         signal = Signal(
                             symbol=symbol,
@@ -122,7 +115,7 @@ class MACDStrategy(BaseStrategy):
                             strategy_name=self.name,
                             price=price,
                             confidence=50,
-                            message=f"MACD pozitif: {macd_value:.4f}",
+                            message=f"MACD positive: {macd_value:.4f}",
                             metadata={"macd": macd_value},
                         )
                     elif macd_value < 0 and self._signal_type in ("bearish", "both"):
@@ -132,7 +125,7 @@ class MACDStrategy(BaseStrategy):
                             strategy_name=self.name,
                             price=price,
                             confidence=50,
-                            message=f"MACD negatif: {macd_value:.4f}",
+                            message=f"MACD negative: {macd_value:.4f}",
                             metadata={"macd": macd_value},
                         )
 
@@ -140,7 +133,7 @@ class MACDStrategy(BaseStrategy):
                     signals.append(signal)
 
             except (ValueError, TypeError) as e:
-                logger.debug(f"Satır atlandı ({idx}): {e}")
+                logger.debug(f"Row skipped ({idx}): {e}")
                 continue
 
         return signals

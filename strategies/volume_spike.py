@@ -1,12 +1,11 @@
 """
-Volume Spike Stratejisi
+Volume Spike Strategy
 
-Anormal hacim artışlarını tespit eder.
-Yüksek hacim genellikle büyük fiyat hareketlerinin habercisidir.
+Detects abnormal trading volume surges.
+High volume spikes often precede large price moves.
 """
 
 from __future__ import annotations
-
 
 import logging
 from typing import Optional
@@ -20,7 +19,7 @@ logger = logging.getLogger("crypto_bot.strategy.volume_spike")
 
 
 class VolumeSpikeStrategy(BaseStrategy):
-    """Hacim patlaması stratejisi."""
+    """Trading volume surge detection strategy."""
 
     @property
     def name(self) -> str:
@@ -28,38 +27,35 @@ class VolumeSpikeStrategy(BaseStrategy):
 
     @property
     def description(self) -> str:
-        return f"Volume Spike (>{self._multiplier}x ortalama)"
+        return f"Volume Spike (>{self._multiplier}x average)"
 
     def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
         self._multiplier = self.get_config("multiplier", 3.0)
 
     def analyze(self, df: pd.DataFrame) -> list[Signal]:
-        """Hacim anormalliklerini tespit eder."""
+        """Detects trading volume anomalies."""
         signals = []
 
-        # Hacim sütununu bul
         vol_col = self._find_column(
             df, ["volume", "Volume", "Vol", "24h_vol"]
         )
 
         if vol_col is None:
-            logger.warning("Hacim sütunu bulunamadı, strateji atlanıyor.")
+            logger.warning("Volume column not found, strategy skipped.")
             return signals
 
-        # İsim, fiyat ve değişim sütunlarını bul
         name_col = self._find_column(df, ["name", "Name", "ticker", "Symbol"])
         price_col = self._find_column(df, ["close", "Close", "price", "Price"])
         change_col = self._find_column(
             df, ["change_percent", "Change%", "change", "Perf.D"]
         )
 
-        # Ortalama hacmi hesapla
         volumes = pd.to_numeric(df[vol_col], errors="coerce")
-        avg_volume = volumes.median()  # Median daha sağlam bir ölçü
+        avg_volume = volumes.median()
 
         if avg_volume is None or avg_volume <= 0:
-            logger.warning("Ortalama hacim hesaplanamadı.")
+            logger.warning("Average volume could not be computed.")
             return signals
 
         for idx, row in df.iterrows():
@@ -75,7 +71,6 @@ class VolumeSpikeStrategy(BaseStrategy):
                     symbol = str(row.get(name_col, idx)) if name_col else str(idx)
                     price = float(row.get(price_col, 0)) if price_col else 0.0
 
-                    # Fiyat değişimine göre yönü belirle
                     change = 0.0
                     if change_col:
                         change_val = row.get(change_col)
@@ -84,13 +79,13 @@ class VolumeSpikeStrategy(BaseStrategy):
 
                     if change > 0:
                         signal_type = SignalType.BUY
-                        direction = "yükseliş"
+                        direction = "bullish"
                     elif change < 0:
                         signal_type = SignalType.SELL
-                        direction = "düşüş"
+                        direction = "bearish"
                     else:
                         signal_type = SignalType.NEUTRAL
-                        direction = "nötr"
+                        direction = "neutral"
 
                     confidence = min(100, (ratio / self._multiplier) * 30 + 40)
 
@@ -101,7 +96,7 @@ class VolumeSpikeStrategy(BaseStrategy):
                         price=price,
                         confidence=confidence,
                         message=(
-                            f"Hacim patlaması: {ratio:.1f}x ortalama "
+                            f"Volume spike: {ratio:.1f}x median "
                             f"({direction}, %{change:+.2f})"
                         ),
                         metadata={
@@ -114,7 +109,7 @@ class VolumeSpikeStrategy(BaseStrategy):
                     signals.append(signal)
 
             except (ValueError, TypeError) as e:
-                logger.debug(f"Satır atlandı ({idx}): {e}")
+                logger.debug(f"Row skipped ({idx}): {e}")
                 continue
 
         return signals

@@ -1,51 +1,65 @@
 """
-Loglama Konfigürasyonu
+Logging Configuration
 
-Renkli konsol çıktısı ve dosya loglaması.
+Sets up colored console output and rotating file logging.
 """
 
 import logging
-import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Optional
 
-from config.settings import Settings
 
+def setup_logging(
+    log_file: Optional[str] = "data/logs/bot.log",
+    level: str = "INFO",
+    max_size_mb: int = 10,
+    backup_count: int = 5,
+) -> logging.Logger:
+    """Configures centralized logging for the application."""
+    root_logger = logging.getLogger("crypto_bot")
+    root_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    root_logger.handlers.clear()
 
-def setup_logging() -> logging.Logger:
-    """Uygulama genelinde loglama sistemini kurar."""
-    settings = Settings()
-    log_level = settings.get("logging.level", "INFO")
-    log_file = settings.get("logging.file", "data/logs/bot.log")
-    max_size_mb = settings.get("logging.max_size_mb", 10)
-    backup_count = settings.get("logging.backup_count", 5)
-
-    # Log dizinini oluştur
-    log_path = Path(log_file)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Root logger
-    logger = logging.getLogger("crypto_bot")
-    logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
-
-    # Formatlayıcı
+    # Formatter
     fmt = "%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s"
     date_fmt = "%Y-%m-%d %H:%M:%S"
-    formatter = logging.Formatter(fmt, datefmt=date_fmt)
 
-    # Konsol handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # Console Handler
+    try:
+        import colorlog
 
-    # Dosya handler (rotating)
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=max_size_mb * 1024 * 1024,
-        backupCount=backup_count,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+        console_formatter = colorlog.ColoredFormatter(
+            "%(log_color)s" + fmt,
+            datefmt=date_fmt,
+            log_colors={
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "red,bg_white",
+            },
+        )
+    except ImportError:
+        console_formatter = logging.Formatter(fmt, datefmt=date_fmt)
 
-    return logger
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+
+    # File Handler
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        file_formatter = logging.Formatter(fmt, datefmt=date_fmt)
+        file_handler = RotatingFileHandler(
+            log_path,
+            maxBytes=max_size_mb * 1024 * 1024,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
+
+    return root_logger
