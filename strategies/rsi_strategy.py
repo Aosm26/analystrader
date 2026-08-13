@@ -45,7 +45,14 @@ class RSIStrategy(BaseStrategy):
 
         # RSI sütununu bul
         rsi_col = self._find_column(
-            df, ["RSI", "RSI14", "relative_strength_index_14", "Recommend.Other"]
+            df,
+            [
+                "Relative Strength Index",
+                "RSI",
+                "RSI14",
+                "relative_strength_index_14",
+                "Recommend.Other",
+            ],
         )
 
         if rsi_col is None:

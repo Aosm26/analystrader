@@ -60,21 +60,38 @@ class BaseStrategy(ABC):
     def _find_column(self, df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
         """
         DataFrame'de belirtilen isimlerdeki sütunu bulur.
-        TVScreener sütun isimleri büyük/küçük harf ve format farklılıkları
-        gösterebilir, bu yüzden esnek arama yaparız.
+        TVScreener sütun isimleri büyük/küçük harf, parantez, alt çizgi ve boşluk
+        farklılıkları gösterebilir. Bu yüzden esnek ve akıllı arama yaparız.
         """
+        import re
+
+        def normalize(s: str) -> str:
+            return re.sub(r"[^a-zA-Z0-9]", "", s).lower()
+
+        # 1. Tam ve küçük harf eşleşmeleri
         df_cols_lower = {col.lower(): col for col in df.columns}
         for candidate in candidates:
-            # Direkt eşleşme
             if candidate in df.columns:
                 return candidate
-            # Küçük harf eşleşme
             if candidate.lower() in df_cols_lower:
                 return df_cols_lower[candidate.lower()]
-            # Kısmi eşleşme
-            for col in df.columns:
-                if candidate.lower() in col.lower():
-                    return col
+
+        # 2. Normalize eşleşme (boşluklar, parantezler ve alt çizgiler olmadan)
+        df_cols_norm = {normalize(col): col for col in df.columns}
+        for candidate in candidates:
+            cand_norm = normalize(candidate)
+            if cand_norm in df_cols_norm:
+                return df_cols_norm[cand_norm]
+
+        # 3. Kısmi normalize eşleşme
+        for candidate in candidates:
+            cand_norm = normalize(candidate)
+            if len(cand_norm) < 3:
+                continue
+            for norm_col, orig_col in df_cols_norm.items():
+                if cand_norm in norm_col or norm_col in cand_norm:
+                    return orig_col
+
         return None
 
     def __repr__(self) -> str:

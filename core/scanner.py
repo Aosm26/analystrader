@@ -119,6 +119,23 @@ class CryptoScanner:
 
         return resolved if resolved else None  # None = tüm field'lar
 
+    FIELD_MAP = {
+        "name": "NAME",
+        "close": "PRICE",
+        "price": "PRICE",
+        "volume": "VOLUME",
+        "change_percent": "CHANGE_PERCENT",
+        "rsi": "RELATIVE_STRENGTH_INDEX_14",
+        "rsi14": "RELATIVE_STRENGTH_INDEX_14",
+        "rsi7": "RELATIVE_STRENGTH_INDEX_7",
+        "macd_level": "MACD_LEVEL_12_26",
+        "macd_signal": "MACD_SIGNAL_12_26",
+        "ema_20": "EXPONENTIAL_MOVING_AVERAGE_20",
+        "ema_50": "EXPONENTIAL_MOVING_AVERAGE_50",
+        "sma_200": "SIMPLE_MOVING_AVERAGE_200",
+        "recommendation_mark": "TECHNICAL_RATING",
+    }
+
     def scan(
         self,
         limit: Optional[int] = None,
@@ -152,9 +169,12 @@ class CryptoScanner:
         field_names = custom_fields or self.settings.get("scanner.fields", [])
         fields = self._resolve_field_list(field_names) if field_names else None
 
+        # Borsa filtresi varsa daha fazla satır çek ki filtreleme sonrası istenen miktara ulaşılsın
+        fetch_limit = limit * 4 if target_exchanges else limit
+
         # Screener oluştur
         screener = self._build_screener(
-            fields=fields, limit=limit, exchanges=target_exchanges
+            fields=fields, limit=fetch_limit, exchanges=target_exchanges
         )
 
         # Veriyi çek
@@ -163,7 +183,7 @@ class CryptoScanner:
             df = screener.get()
 
             if df is not None and not df.empty:
-                logger.info(f"✅ {len(df)} coin tarandı. Sütunlar: {list(df.columns)}")
+                logger.info(f"✅ {len(df)} coin çekildi. Sütunlar: {list(df.columns)}")
 
                 # Borsa filtresi uygula (Symbol index veya Exchange sütunu)
                 if target_exchanges:
@@ -178,6 +198,9 @@ class CryptoScanner:
 
                     initial_count = len(df)
                     df = df[df.apply(is_allowed_exchange, axis=1)].reset_index(drop=True)
+                    if limit and len(df) > limit:
+                        df = df.iloc[:limit].reset_index(drop=True)
+
                     logger.info(
                         f"🔍 Borsa filtresi uygulandı ({', '.join(ex_upper)}): "
                         f"{initial_count} -> {len(df)} coin kaldı."
@@ -238,3 +261,11 @@ class CryptoScanner:
             return info
         except ImportError:
             return []
+
+    def discover_fields(self, keyword: str = "") -> list[str]:
+        """Arama kelimesine göre kullanılabilir field isimlerini döner."""
+        fields = self.list_available_fields()
+        if not keyword:
+            return fields
+        kw = keyword.lower()
+        return [f for f in fields if kw in f.lower()]
