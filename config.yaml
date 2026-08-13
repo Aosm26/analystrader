@@ -1,6 +1,6 @@
 bot:
   name: "CryptoScreenerBot"
-  scan_interval: 300  # Interval in seconds (5 minutes)
+  scan_interval: 30  # Interval in seconds (5 minutes)
   timezone: "UTC"
 
 scanner:
@@ -26,6 +26,7 @@ strategies:
     - rsi_strategy
     - macd_strategy
     - volume_spike
+    - volume_rsi_breakout
 
   rsi_strategy:
     oversold_threshold: 30
@@ -37,6 +38,13 @@ strategies:
   volume_spike:
     multiplier: 3.0
     lookback_periods: 20
+
+  volume_rsi_breakout:
+    volume_multiplier: 2.5
+    rsi_min: 50
+    rsi_max: 65
+    tp_percent: 1.50
+    sl_percent: 0.75
 
 notifications:
   telegram:

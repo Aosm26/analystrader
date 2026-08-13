@@ -4,6 +4,7 @@ from strategies.base import BaseStrategy
 from strategies.rsi_strategy import RSIStrategy
 from strategies.macd_strategy import MACDStrategy
 from strategies.volume_spike import VolumeSpikeStrategy
+from strategies.volume_rsi_breakout import VolumeRSIBreakoutStrategy
 from strategies.composite import CompositeStrategy
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "RSIStrategy",
     "MACDStrategy",
     "VolumeSpikeStrategy",
+    "VolumeRSIBreakoutStrategy",
     "CompositeStrategy",
 ]

@@ -25,7 +25,17 @@ AnalyTrader's strategy system is designed for high modularity. Every strategy op
   - `multiplier` (default: `3.0`): Triggers when current volume $\ge 3.0 \times \text{median\_volume}$.
 - **Direction**: Determined by 24h price change percentage (positive = BUY, negative = SELL).
 
-### 4. Composite Strategy (`composite`)
+### 4. Volume Spike + RSI Breakout Strategy (`volume_rsi_breakout`)
+- **Logic**: Catches institutional algorithms / whale order flow by detecting simultaneous volume surges ($\ge 2.5\times \text{SMA}_{20}(V)$) and healthy RSI momentum breakouts ($50 < \text{RSI} \le 65$).
+- **Parameters**:
+  - `volume_multiplier` (default: `2.5`): Minimum volume surge relative to median market volume.
+  - `rsi_min` (default: `50`): Minimum RSI threshold.
+  - `rsi_max` (default: `65`): Maximum RSI threshold (prevents buying overbought tops).
+  - `tp_percent` (default: `1.50%`): Take profit target percentage above entry price.
+  - `sl_percent` (default: `0.75%`): Stop loss percentage below entry price (or candle low).
+- **Risk / Reward Ratio**: 2.0 (TP: 1.50% / SL: 0.75%).
+
+### 5. Composite Strategy (`composite`)
 - **Logic**: Meta-strategy requiring $N$ sub-strategies to agree on the same coin (Confluence).
 - **Boosted Confidence**: Emits `STRONG_BUY` or `STRONG_SELL` with confidence multiplier when agreement criteria is met.
 

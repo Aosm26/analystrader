@@ -26,7 +26,12 @@ from config.logging_config import setup_logging
 from core.scanner import CryptoScanner
 from core.analyzer import Analyzer
 from core.scheduler import BotScheduler
-from strategies import RSIStrategy, MACDStrategy, VolumeSpikeStrategy
+from strategies import (
+    RSIStrategy,
+    MACDStrategy,
+    VolumeSpikeStrategy,
+    VolumeRSIBreakoutStrategy,
+)
 from notifications import ConsoleNotifier, TelegramNotifier, WebhookNotifier
 from storage import SQLiteStorage
 
@@ -95,6 +100,7 @@ class CryptoBot:
             "rsi_strategy": RSIStrategy,
             "macd_strategy": MACDStrategy,
             "volume_spike": VolumeSpikeStrategy,
+            "volume_rsi_breakout": VolumeRSIBreakoutStrategy,
         }
 
         for strategy_name in enabled:
