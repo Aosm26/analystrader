@@ -1,0 +1,62 @@
+bot:
+  name: "CryptoScreenerBot"
+  scan_interval: 300  # saniye (5 dakika)
+  timezone: "Europe/Istanbul"
+
+scanner:
+  screener_type: "crypto"
+  default_limit: 100
+  min_volume: 500000  # Minimum hacim filtresi (USD)
+  fields:
+    - name
+    - close
+    - change_percent
+    - volume
+    - relative_strength_index_14
+    - macd_level_12_26
+    - macd_signal_12_26
+    - exponential_moving_average_20
+    - exponential_moving_average_50
+    - simple_moving_average_200
+    - recommendation_mark
+
+strategies:
+  enabled:
+    - rsi_strategy
+    - macd_strategy
+    - volume_spike
+
+  rsi_strategy:
+    oversold_threshold: 30
+    overbought_threshold: 70
+
+  macd_strategy:
+    signal_type: "both"  # bullish, bearish, both
+
+  volume_spike:
+    multiplier: 3.0
+    lookback_periods: 20
+
+notifications:
+  telegram:
+    enabled: false  # .env'de token ayarlayınca true yap
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+  console:
+    enabled: true
+    colored: true
+
+  webhook:
+    enabled: false
+    url: "${WEBHOOK_URL}"
+
+storage:
+  type: "sqlite"
+  path: "data/signals.db"
+
+logging:
+  level: "INFO"
+  file: "data/logs/bot.log"
+  max_size_mb: 10
+  backup_count: 5
