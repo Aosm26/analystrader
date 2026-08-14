@@ -1,13 +1,11 @@
 """
-Paper Trader Engine — Simulated Live Trading & Order Execution Motor
+Paper Trader Engine & Decision Motor
 
-Processes signals through a specialized Strategy Alignment Motor tailored for:
-1. Volume Spike + RSI Breakout (volume_rsi_breakout)
-2. Bollinger Bands Squeeze & Breakout (bollinger_squeeze)
-3. Dual EMA Trend Pullback (ema_pullback)
+Implements weighted signal strength (WSS), risk-reward filtering (R:R >= 1.5),
+and confluence multiplier equations (1 + (N * 0.15)) as defined in decision logic.
 
-Calculates dynamic position sizing (Balance / max_open_positions), detects multi-strategy
-confluence boosts, tracks active positions, and executes automatic TP/SL closures.
+Calculates dynamic position sizing (Balance / max_open_positions), tracks open positions,
+and automatically triggers TP/SL closures.
 """
 
 from __future__ import annotations
@@ -22,16 +20,17 @@ from storage.sqlite_storage import SQLiteStorage
 
 logger = logging.getLogger("crypto_bot.paper_trader")
 
-# Target Core Strategies
-CORE_STRATEGIES = {
-    "bollinger_squeeze": {"weight": 1.10, "label": "Bollinger Breakout"},
-    "volume_rsi_breakout": {"weight": 1.08, "label": "Whale RSI Momentum"},
-    "ema_pullback": {"weight": 1.05, "label": "Dual EMA Pullback"},
+# Strategy Weights Map
+STRATEGY_WEIGHTS = {
+    "volume_rsi_breakout": 1.2,  # High weight (Whale Momentum)
+    "bollinger_squeeze": 1.1,    # High weight (Volatility Breakout)
+    "macd_strategy": 1.0,        # Standard weight
+    "ema_pullback": 0.8,         # Standard/Low weight (Dip Re-entry)
 }
 
 
 class PaperTrader:
-    """Paper Trading Engine & Strategy Execution Motor."""
+    """Paper Trading Engine & Decision Motor."""
 
     def __init__(self, storage: SQLiteStorage, config: Optional[dict] = None):
         self.storage = storage
@@ -39,14 +38,14 @@ class PaperTrader:
 
         self.initial_balance = float(self.config.get("initial_balance", 10000.0))
         self.max_open_positions = int(self.config.get("max_open_positions", 5))
-        self.min_confidence = float(self.config.get("min_confidence", 60.0))
         self.min_risk_reward = float(self.config.get("min_risk_reward", 1.5))
+        self.min_final_score = float(self.config.get("min_confidence", 50.0))
 
     def update(self, df: pd.DataFrame, signals: list[Signal]) -> dict:
         """
         Main tick handler called after market scanning.
         1. Checks active open positions against updated market prices (TP/SL checks).
-        2. Filters & ranks raw strategy signals via the Strategy-Aligned Execution Motor.
+        2. Executes Decision Motor logic (Grouping -> R:R Filter -> WSS -> Confluence Multiplier).
         3. Dynamically calculates position size (Balance / max_open_positions).
         4. Opens paper positions for top qualified signals up to max_open_positions.
         """
@@ -121,8 +120,8 @@ class PaperTrader:
         # Calculate dynamic position size: Current Balance / max_open_positions
         position_size_usd = max(10.0, current_balance / max(1, self.max_open_positions))
 
-        # 2. Execution Motor: Filter, Confluence-Boost & Rank incoming signals
-        qualified_signals = self._filter_and_rank_signals(signals)
+        # 2. Decision Motor: Group -> R:R Filter -> WSS -> Confluence Multiplier -> Rank
+        qualified_signals = self.process_decision_motor(signals)
 
         # 3. Open Paper Positions for top qualified signals
         open_positions_after = self.storage.get_open_paper_positions()
@@ -162,10 +161,11 @@ class PaperTrader:
                 open_symbols.add(sig.symbol)
                 opened_count += 1
                 logger.info(
-                    f"🚀 EXECUTION MOTOR ORDER: [{sig.symbol}] ({sig.strategy_name}) | "
+                    f"🚀 DECISION MOTOR ORDER: [{sig.symbol}] Strategies: ({meta.get('strategies')}) | "
                     f"Entry: ${entry_price:,.4f} | Size: ${position_size_usd:,.2f} "
                     f"(1/{self.max_open_positions} Balance) | "
-                    f"TP: ${tp_price:,.4f} | SL: ${sl_price:,.4f} | Final Score: {sig.confidence:.1f}%"
+                    f"TP: ${tp_price:,.4f} | SL: ${sl_price:,.4f} | "
+                    f"Final Score: {sig.confidence:.2f} | R:R: {meta.get('risk_reward_ratio', 0):.2f}"
                 )
 
         current_open = self.storage.get_open_paper_positions()
@@ -181,82 +181,103 @@ class PaperTrader:
             "closed_sl_this_tick": closed_sl_count,
             "opened_this_tick": opened_count,
             "signals_filtered_count": len(signals) - len(qualified_signals),
+            "processed_signals": [s.metadata for s in qualified_signals],
         }
 
-    def _filter_and_rank_signals(self, signals: list[Signal]) -> list[Signal]:
+    def process_decision_motor(self, signals: list[Signal]) -> list[Signal]:
         """
-        Strategy-Aligned Execution Motor:
-        1. Filters signals produced by bollinger_squeeze, volume_rsi_breakout, and ema_pullback.
-        2. Detects multi-strategy confluence (if a coin hits multiple core strategies).
-        3. Applies strategy weighting & risk/reward filters.
-        4. Ranks signals by final weighted score descending.
+        Decision Motor Algorithm (Matching n8n logic):
+        1. Group signals by symbol.
+        2. Find best signal per group by Risk/Reward ratio.
+        3. Risk Filter: Skip symbol if best signal R:R < min_risk_reward (1.5).
+        4. Calculate Weighted Signal Strength (WSS) = sum(confidence * weight).
+        5. Apply Confluence Multiplier = 1 + (N * 0.15) if N > 1 else 1.0.
+        6. Compute Final Score = WSS * Multiplier.
+        7. Sort qualified signals descending by Final Score.
         """
-        # Group signals by symbol
-        symbol_signals: dict[str, list[Signal]] = {}
+        # Step 2: Group Signals by Symbol
+        grouped_signals: dict[str, list[Signal]] = {}
         for sig in signals:
             if sig.signal_type not in (SignalType.BUY, SignalType.STRONG_BUY):
                 continue
-            symbol_signals.setdefault(sig.symbol, []).append(sig)
+            grouped_signals.setdefault(sig.symbol, []).append(sig)
 
         qualified_signals: list[Signal] = []
 
-        for symbol, sig_list in symbol_signals.items():
-            # Check strategy alignment
-            core_sigs = [s for s in sig_list if s.strategy_name in CORE_STRATEGIES]
-
-            if not core_sigs:
-                # If no core strategy generated signal for this symbol, fall back to best signal if confidence is high
-                best_sig = max(sig_list, key=lambda s: s.confidence)
-                if best_sig.confidence >= self.min_confidence + 10.0:  # Higher bar for non-core
-                    qualified_signals.append(best_sig)
-                continue
-
-            # Pick primary core signal with highest base confidence
-            primary_sig = max(core_sigs, key=lambda s: s.confidence)
-            strat_info = CORE_STRATEGIES[primary_sig.strategy_name]
-            weight = strat_info["weight"]
-
-            # Calculate weighted score
-            weighted_score = primary_sig.confidence * weight
-
-            # Confluence Boost: Check if multiple core strategies fired for the same coin!
-            strategies_fired = {s.strategy_name for s in core_sigs}
-            if len(strategies_fired) >= 2:
-                weighted_score += 15.0  # +15% Confluence Bonus!
-                logger.info(
-                    f"🔥 MULTI-STRATEGY CONFLUENCE DETECTED on [{symbol}]! "
-                    f"Strategies: {list(strategies_fired)} | Score Boosted: {weighted_score:.1f}%"
-                )
-
-            # Risk/Reward Check
-            meta = primary_sig.metadata or {}
-            rr_ratio = meta.get("risk_reward_ratio")
-            if rr_ratio is not None and rr_ratio < self.min_risk_reward:
-                continue
-
-            # Minimum confidence check against weighted score
-            if weighted_score < self.min_confidence:
-                continue
-
-            # Clone signal with final weighted score for ranking
-            final_signal = Signal(
-                symbol=primary_sig.symbol,
-                signal_type=SignalType.BUY,
-                strategy_name=f"{primary_sig.strategy_name}" + (f"+Confluence({len(strategies_fired)})" if len(strategies_fired) > 1 else ""),
-                price=primary_sig.price,
-                confidence=min(100.0, weighted_score),
-                message=primary_sig.message,
-                metadata=primary_sig.metadata,
-                timestamp=primary_sig.timestamp,
+        for symbol, group in grouped_signals.items():
+            # Find best signal based on Risk/Reward ratio
+            best_signal = max(
+                group,
+                key=lambda s: (s.metadata or {}).get("risk_reward_ratio", 1.5)
             )
-            qualified_signals.append(final_signal)
 
-        # Rank by final score descending
-        ranked_signals = sorted(qualified_signals, key=lambda s: s.confidence, reverse=True)
+            meta = best_signal.metadata or {}
+            rr_ratio = float(meta.get("risk_reward_ratio", 1.5))
+
+            # --- 1. RISK FILTER ---
+            if rr_ratio < self.min_risk_reward:
+                logger.debug(f"Risk Filter Skipped [{symbol}]: R:R {rr_ratio:.2f} < {self.min_risk_reward}")
+                continue
+
+            # --- 2. SIGNAL STRENGTH CALCULATION (WSS) ---
+            total_score = 0.0
+            strategies_used = []
+
+            for sig in group:
+                weight = STRATEGY_WEIGHTS.get(sig.strategy_name, 1.0)
+                total_score += (sig.confidence * weight)
+                strategies_used.append(sig.strategy_name)
+
+            # --- 3. CONFLUENCE MULTIPLIER ---
+            # If 1 strategy -> multiplier 1.0. If 2 strategies -> 1.30. If 3 strategies -> 1.45.
+            confluence_count = len(group)
+            multiplier = (1.0 + (confluence_count * 0.15)) if confluence_count > 1 else 1.0
+            final_score = round(total_score * multiplier, 2)
+
+            if final_score < self.min_final_score:
+                continue
+
+            entry_price = float(meta.get("entry_price", best_signal.price))
+            tp_price = float(meta.get("tp_price", entry_price * 1.02))
+            sl_price = float(meta.get("sl_price", entry_price * 0.99))
+
+            strategies_str = ", ".join(strategies_used)
+
+            # Enriched Signal metadata matching n8n format
+            enriched_meta = {
+                "symbol": symbol,
+                "action": best_signal.signal_type.value,
+                "final_score": final_score,
+                "confluence_count": confluence_count,
+                "strategies": strategies_str,
+                "entry_price": entry_price,
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+                "risk_reward_ratio": rr_ratio,
+            }
+
+            processed_signal = Signal(
+                symbol=symbol,
+                signal_type=best_signal.signal_type,
+                strategy_name=f"Motor({strategies_str})",
+                price=entry_price,
+                confidence=final_score,
+                message=best_signal.message,
+                metadata=enriched_meta,
+                timestamp=best_signal.timestamp,
+            )
+            qualified_signals.append(processed_signal)
+
+        # Step 5: Sort by Final Score descending
+        ranked_signals = sorted(
+            qualified_signals,
+            key=lambda s: (s.metadata or {}).get("final_score", 0.0),
+            reverse=True
+        )
 
         logger.info(
-            f"⚡ STRATEGY MOTOR: Evaluated {len(signals)} raw signals ➔ "
-            f"{len(ranked_signals)} qualified orders (Min Conf: {self.min_confidence}%, Min RR: {self.min_risk_reward})."
+            f"⚡ DECISION MOTOR: Evaluated {len(signals)} raw signals across "
+            f"{len(grouped_signals)} coins ➔ {len(ranked_signals)} top qualified orders."
         )
         return ranked_signals
 
