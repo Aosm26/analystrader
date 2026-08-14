@@ -61,6 +61,29 @@ class SQLiteStorage(BaseStorage):
                 errors TEXT DEFAULT '[]',
                 created_at TEXT DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS paper_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                strategy_name TEXT NOT NULL,
+                side TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                quantity REAL NOT NULL,
+                amount_usd REAL NOT NULL,
+                tp_price REAL NOT NULL,
+                sl_price REAL NOT NULL,
+                status TEXT DEFAULT 'OPEN',
+                exit_price REAL DEFAULT 0,
+                pnl_usd REAL DEFAULT 0,
+                pnl_percent REAL DEFAULT 0,
+                opened_at TEXT NOT NULL,
+                closed_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_paper_positions_status
+                ON paper_positions(status);
+            CREATE INDEX IF NOT EXISTS idx_paper_positions_symbol
+                ON paper_positions(symbol);
         """)
         self._conn.commit()
 
@@ -223,6 +246,102 @@ class SQLiteStorage(BaseStorage):
             self._conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Scan log error: {e}")
+
+    def open_paper_position(
+        self,
+        symbol: str,
+        strategy_name: str,
+        side: str,
+        entry_price: float,
+        quantity: float,
+        amount_usd: float,
+        tp_price: float,
+        sl_price: float,
+    ) -> Optional[int]:
+        """Opens a new paper trading position."""
+        try:
+            now = datetime.utcnow().isoformat()
+            cursor = self._conn.execute(
+                """
+                INSERT INTO paper_positions
+                    (symbol, strategy_name, side, entry_price, quantity,
+                     amount_usd, tp_price, sl_price, status, opened_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+                """,
+                (
+                    symbol,
+                    strategy_name,
+                    side,
+                    entry_price,
+                    quantity,
+                    amount_usd,
+                    tp_price,
+                    sl_price,
+                    now,
+                ),
+            )
+            self._conn.commit()
+            return cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"Error opening paper position: {e}")
+            return None
+
+    def close_paper_position(
+        self,
+        position_id: int,
+        exit_price: float,
+        status: str,
+        pnl_usd: float,
+        pnl_percent: float,
+    ) -> bool:
+        """Closes an open paper trading position with TP or SL."""
+        try:
+            now = datetime.utcnow().isoformat()
+            self._conn.execute(
+                """
+                UPDATE paper_positions
+                SET status = ?, exit_price = ?, pnl_usd = ?, pnl_percent = ?, closed_at = ?
+                WHERE id = ?
+                """,
+                (status, exit_price, pnl_usd, pnl_percent, now, position_id),
+            )
+            self._conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error closing paper position {position_id}: {e}")
+            return False
+
+    def get_open_paper_positions(self) -> list[dict]:
+        """Retrieves all currently open paper trading positions."""
+        try:
+            cursor = self._conn.execute(
+                "SELECT * FROM paper_positions WHERE status = 'OPEN'"
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching open paper positions: {e}")
+            return []
+
+    def get_paper_stats(self) -> dict:
+        """Calculates paper trading performance stats."""
+        try:
+            cursor = self._conn.execute("""
+                SELECT
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as win_trades,
+                    SUM(CASE WHEN pnl_usd < 0 THEN 1 ELSE 0 END) as loss_trades,
+                    COALESCE(SUM(pnl_usd), 0.0) as total_pnl_usd
+                FROM paper_positions
+                WHERE status IN ('CLOSED_TP', 'CLOSED_SL')
+            """)
+            row = dict(cursor.fetchone())
+            total = row["total_trades"] or 0
+            wins = row["win_trades"] or 0
+            row["win_rate"] = round((wins / total) * 100.0, 1) if total > 0 else 0.0
+            return row
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching paper stats: {e}")
+            return {"total_trades": 0, "win_trades": 0, "loss_trades": 0, "total_pnl_usd": 0.0, "win_rate": 0.0}
 
     def close(self) -> None:
         """Closes SQLite database connection."""

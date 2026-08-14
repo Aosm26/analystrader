@@ -26,6 +26,7 @@ from config.logging_config import setup_logging
 from core.scanner import CryptoScanner
 from core.analyzer import Analyzer
 from core.scheduler import BotScheduler
+from core.paper_trader import PaperTrader
 from strategies import (
     RSIStrategy,
     MACDStrategy,
@@ -52,9 +53,18 @@ class CryptoBot:
         self.storage = self._init_storage()
         self.notifiers = self._init_notifiers()
 
+        self.paper_trader = self._init_paper_trader()
+
         self._init_strategies()
 
         self.logger.info("🤖 CryptoBot initialized successfully.")
+
+    def _init_paper_trader(self) -> Optional[PaperTrader]:
+        """Initializes paper trading engine if enabled."""
+        if self.settings.get("paper_trading.enabled", True):
+            config = self.settings.get("paper_trading", {})
+            return PaperTrader(storage=self.storage, config=config)
+        return None
 
     def _init_storage(self) -> SQLiteStorage:
         """Initializes storage backend."""
@@ -140,6 +150,16 @@ class CryptoBot:
 
             if result.has_signals:
                 self.storage.save_signals(result.signals)
+
+            # Process Paper Trading (Simulated Live Trading)
+            if self.paper_trader:
+                stats = self.paper_trader.update(df, result.signals)
+                self.logger.info(
+                    f"💼 PAPER PORTFOLIO: Balance: ${stats['current_balance']:,.2f} | "
+                    f"Realized PnL: ${stats['realized_pnl_usd']:+,.2f} | "
+                    f"Open Positions: {stats['open_positions_count']} | "
+                    f"Win Rate: {stats['win_rate']}% ({stats['total_trades']} trades)"
+                )
 
             self.storage.save_scan_log(
                 scan_time=result.scan_time,
