@@ -77,8 +77,9 @@ storage:
 paper_trading:
   enabled: true
   initial_balance: 10000.0   # Initial virtual USD balance
-  trade_amount_usd: 100.0     # Position size per paper trade in USD
-  max_open_positions: 10      # Max active simulated positions
+  max_open_positions: 5      # Max active positions (Balance is divided equally into 5 parts)
+  min_confidence: 65.0       # Execution Motor: Minimum signal confidence score filter (%)
+  min_risk_reward: 1.5       # Execution Motor: Minimum Risk / Reward ratio filter
 
 logging:
   level: "INFO"
