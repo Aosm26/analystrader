@@ -1,8 +1,9 @@
 """
 Paper Trader Engine & Decision Motor
 
-Implements weighted signal strength (WSS), risk-reward filtering (R:R >= 1.5),
-and confluence multiplier equations (1 + (N * 0.15)) as defined in decision logic.
+Implements weighted signal strength (WSS), base asset normalization (grouping SUNUSDT,
+SUNUSDT.P, SUNTRY as SUN), risk-reward filtering (R:R >= 1.5), and confluence multiplier
+equations (1 + (N * 0.15)).
 
 Calculates dynamic position sizing (Balance / max_open_positions), tracks open positions,
 and automatically triggers TP/SL closures.
@@ -17,6 +18,7 @@ import pandas as pd
 
 from models.signal import Signal, SignalType
 from storage.sqlite_storage import SQLiteStorage
+from utils.helpers import extract_base_asset
 
 logger = logging.getLogger("crypto_bot.paper_trader")
 
@@ -30,7 +32,7 @@ STRATEGY_WEIGHTS = {
 
 
 class PaperTrader:
-    """Paper Trading Engine & Decision Motor."""
+    """Paper Trading Engine & Decision Motor with Asset Normalization."""
 
     def __init__(self, storage: SQLiteStorage, config: Optional[dict] = None):
         self.storage = storage
@@ -45,7 +47,7 @@ class PaperTrader:
         """
         Main tick handler called after market scanning.
         1. Checks active open positions against updated market prices (TP/SL checks).
-        2. Executes Decision Motor logic (Grouping -> R:R Filter -> WSS -> Confluence Multiplier).
+        2. Executes Decision Motor logic with Asset Normalization.
         3. Dynamically calculates position size (Balance / max_open_positions).
         4. Opens paper positions for top qualified signals up to max_open_positions.
         """
@@ -120,19 +122,21 @@ class PaperTrader:
         # Calculate dynamic position size: Current Balance / max_open_positions
         position_size_usd = max(10.0, current_balance / max(1, self.max_open_positions))
 
-        # 2. Decision Motor: Group -> R:R Filter -> WSS -> Confluence Multiplier -> Rank
+        # 2. Decision Motor: Group by Base Asset -> R:R Filter -> WSS -> Confluence Multiplier -> Rank
         qualified_signals = self.process_decision_motor(signals)
 
-        # 3. Open Paper Positions for top qualified signals
+        # 3. Open Paper Positions for top qualified signals (Deduplicated by Base Asset)
         open_positions_after = self.storage.get_open_paper_positions()
-        open_symbols = {p["symbol"] for p in open_positions_after}
+        open_base_assets = {extract_base_asset(p["symbol"]) for p in open_positions_after}
 
         opened_count = 0
         for sig in qualified_signals:
-            if sig.symbol in open_symbols:
-                continue  # Already in position
+            base_asset = extract_base_asset(sig.symbol)
 
-            if len(open_symbols) >= self.max_open_positions:
+            if base_asset in open_base_assets:
+                continue  # Already in position for this base asset (e.g., SUN, PEOPLE, G)
+
+            if len(open_base_assets) >= self.max_open_positions:
                 logger.debug("Max paper open positions limit reached.")
                 break
 
@@ -158,10 +162,11 @@ class PaperTrader:
             )
 
             if pos_id:
-                open_symbols.add(sig.symbol)
+                open_base_assets.add(base_asset)
                 opened_count += 1
                 logger.info(
-                    f"🚀 DECISION MOTOR ORDER: [{sig.symbol}] Strategies: ({meta.get('strategies')}) | "
+                    f"🚀 DECISION MOTOR ORDER: [{sig.symbol}] (Base Asset: {base_asset}) | "
+                    f"Strategies: ({meta.get('strategies')}) | "
                     f"Entry: ${entry_price:,.4f} | Size: ${position_size_usd:,.2f} "
                     f"(1/{self.max_open_positions} Balance) | "
                     f"TP: ${tp_price:,.4f} | SL: ${sl_price:,.4f} | "
@@ -186,51 +191,60 @@ class PaperTrader:
 
     def process_decision_motor(self, signals: list[Signal]) -> list[Signal]:
         """
-        Decision Motor Algorithm (Matching n8n logic):
-        1. Group signals by symbol.
-        2. Find best signal per group by Risk/Reward ratio.
-        3. Risk Filter: Skip symbol if best signal R:R < min_risk_reward (1.5).
-        4. Calculate Weighted Signal Strength (WSS) = sum(confidence * weight).
-        5. Apply Confluence Multiplier = 1 + (N * 0.15) if N > 1 else 1.0.
-        6. Compute Final Score = WSS * Multiplier.
-        7. Sort qualified signals descending by Final Score.
+        Decision Motor Algorithm with Base Asset Normalization:
+        1. Normalizes symbol tickers (SUNUSDT, SUNUSDT.P, SUNTRY -> Base: SUN).
+        2. Groups all signals under the same Base Asset.
+        3. Finds best trading pair signal by R:R ratio.
+        4. Applies Risk Filter (R:R >= 1.5).
+        5. Computes Weighted Signal Strength (WSS) per unique strategy for this asset.
+        6. Applies Confluence Multiplier = 1 + (N * 0.15) if N > 1 else 1.0 based on distinct strategies.
+        7. Sorts qualified assets descending by Final Score.
         """
-        # Step 2: Group Signals by Symbol
-        grouped_signals: dict[str, list[Signal]] = {}
+        # Step 1: Group Signals by Base Asset (e.g., SUN, PEOPLE, G, BTC)
+        grouped_by_asset: dict[str, list[Signal]] = {}
         for sig in signals:
             if sig.signal_type not in (SignalType.BUY, SignalType.STRONG_BUY):
                 continue
-            grouped_signals.setdefault(sig.symbol, []).append(sig)
+            base = extract_base_asset(sig.symbol)
+            if base:
+                grouped_by_asset.setdefault(base, []).append(sig)
 
         qualified_signals: list[Signal] = []
 
-        for symbol, group in grouped_signals.items():
-            # Find best signal based on Risk/Reward ratio
-            best_signal = max(
-                group,
-                key=lambda s: (s.metadata or {}).get("risk_reward_ratio", 1.5)
-            )
+        for base_asset, group in grouped_by_asset.items():
+            # Find best trade signal based on Risk/Reward ratio and preferred USDT/USDT.P symbol
+            def _signal_score_key(s: Signal) -> tuple[float, float]:
+                rr = (s.metadata or {}).get("risk_reward_ratio", 1.5)
+                pref = 2.0 if s.symbol.endswith(".P") else (1.5 if s.symbol.endswith("USDT") else 1.0)
+                return (rr, pref)
 
+            best_signal = max(group, key=_signal_score_key)
             meta = best_signal.metadata or {}
             rr_ratio = float(meta.get("risk_reward_ratio", 1.5))
 
             # --- 1. RISK FILTER ---
             if rr_ratio < self.min_risk_reward:
-                logger.debug(f"Risk Filter Skipped [{symbol}]: R:R {rr_ratio:.2f} < {self.min_risk_reward}")
+                logger.debug(f"Risk Filter Skipped Base [{base_asset}]: R:R {rr_ratio:.2f} < {self.min_risk_reward}")
                 continue
 
-            # --- 2. SIGNAL STRENGTH CALCULATION (WSS) ---
+            # --- 2. SIGNAL STRENGTH & UNIQUE STRATEGY DEDUPLICATION ---
+            # Group strategy signals by strategy_name (keep highest confidence per strategy for this coin)
+            strat_map: dict[str, Signal] = {}
+            for sig in group:
+                if sig.strategy_name not in strat_map or sig.confidence > strat_map[sig.strategy_name].confidence:
+                    strat_map[sig.strategy_name] = sig
+
             total_score = 0.0
             strategies_used = []
 
-            for sig in group:
-                weight = STRATEGY_WEIGHTS.get(sig.strategy_name, 1.0)
+            for strat_name, sig in strat_map.items():
+                weight = STRATEGY_WEIGHTS.get(strat_name, 1.0)
                 total_score += (sig.confidence * weight)
-                strategies_used.append(sig.strategy_name)
+                strategies_used.append(strat_name)
 
             # --- 3. CONFLUENCE MULTIPLIER ---
-            # If 1 strategy -> multiplier 1.0. If 2 strategies -> 1.30. If 3 strategies -> 1.45.
-            confluence_count = len(group)
+            # Distinct strategy count for this underlying asset (e.g. SUN)
+            confluence_count = len(strat_map)
             multiplier = (1.0 + (confluence_count * 0.15)) if confluence_count > 1 else 1.0
             final_score = round(total_score * multiplier, 2)
 
@@ -245,7 +259,8 @@ class PaperTrader:
 
             # Enriched Signal metadata matching n8n format
             enriched_meta = {
-                "symbol": symbol,
+                "symbol": best_signal.symbol,
+                "base_asset": base_asset,
                 "action": best_signal.signal_type.value,
                 "final_score": final_score,
                 "confluence_count": confluence_count,
@@ -257,7 +272,7 @@ class PaperTrader:
             }
 
             processed_signal = Signal(
-                symbol=symbol,
+                symbol=best_signal.symbol,
                 signal_type=best_signal.signal_type,
                 strategy_name=f"Motor({strategies_str})",
                 price=entry_price,
@@ -268,6 +283,12 @@ class PaperTrader:
             )
             qualified_signals.append(processed_signal)
 
+            if confluence_count > 1:
+                logger.info(
+                    f"🔥 ASSET CONFLUENCE DETECTED on Base [{base_asset}] ({best_signal.symbol})! "
+                    f"Strategies: {strategies_used} | Confluence Score: {final_score:.2f}"
+                )
+
         # Step 5: Sort by Final Score descending
         ranked_signals = sorted(
             qualified_signals,
@@ -277,7 +298,7 @@ class PaperTrader:
 
         logger.info(
             f"⚡ DECISION MOTOR: Evaluated {len(signals)} raw signals across "
-            f"{len(grouped_signals)} coins ➔ {len(ranked_signals)} top qualified orders."
+            f"{len(grouped_by_asset)} base assets ➔ {len(ranked_signals)} top qualified orders."
         )
         return ranked_signals
 

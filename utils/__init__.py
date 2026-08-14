@@ -1,6 +1,5 @@
-"""Utils Package — Helper utilities and rate limiting."""
+"""Utils package containing formatting and helper functions."""
 
-from utils.helpers import format_number, format_price, format_volume, truncate
-from utils.rate_limiter import RateLimiter
+from utils.helpers import extract_base_asset, format_number, format_price, format_volume, truncate
 
-__all__ = ["format_number", "format_price", "format_volume", "truncate", "RateLimiter"]
+__all__ = ["format_price", "format_volume", "format_number", "truncate", "extract_base_asset"]

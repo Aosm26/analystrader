@@ -6,7 +6,44 @@ Data formatting and string manipulation helper functions.
 
 from __future__ import annotations
 
+import re
 from typing import Union
+
+
+def extract_base_asset(symbol: str) -> str:
+    """
+    Extracts the underlying base crypto asset from ticker symbols.
+
+    Examples:
+        'SUNUSDT.P'   -> 'SUN'
+        'SUNUSDT'     -> 'SUN'
+        'PEOPLETRY'   -> 'PEOPLE'
+        'PEOPLEUSDT'  -> 'PEOPLE'
+        'GUSDT.P'     -> 'G'
+        'GTRY'        -> 'G'
+        'SOLUSDC.P'   -> 'SOL'
+    """
+    if not symbol:
+        return ""
+
+    sym = str(symbol).strip().upper()
+
+    # Remove futures / derivative suffixes (.P, _PERP, PERP, etc.)
+    sym = re.sub(r"(\.P|_PERP|PERP|[UZ]\d{4})$", "", sym)
+
+    # Common quote currencies sorted by length descending to match longest first
+    quote_currencies = [
+        "USDT", "USDC", "USDS", "RLUSD", "BFUSD",
+        "TRY", "BRL", "EUR", "JPY", "UAH", "USD",
+        "BTC", "ETH", "SOL", "BNB"
+    ]
+
+    for quote in quote_currencies:
+        if sym.endswith(quote) and len(sym) > len(quote):
+            sym = sym[:-len(quote)]
+            break
+
+    return sym or str(symbol)
 
 
 def format_price(price: Union[int, float]) -> str:
